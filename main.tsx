@@ -112,7 +112,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .glass { background: #1a1a1a; border: 1px solid #333; }
         .input-box { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 4px; width: 100%; outline: none; transition: 0.3s; }
         .input-box:focus { border-color: #E50914; }
-        .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; transition: 0.3s; }
+        .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; transition: 0.3s; cursor: pointer; }
         .btn-primary:active { transform: scale(0.95); }
         
         /* Toast Notification */
@@ -139,7 +139,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             // Link Loader
             document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { 
-                if(l.getAttribute('href')?.startsWith('/') && !l.getAttribute('href').includes('logout')) loader.classList.add('active'); 
+                if(l.getAttribute('href')?.startsWith('/') && !l.getAttribute('href').includes('logout') && !l.getAttribute('href').includes('#')) loader.classList.add('active'); 
             }));
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
@@ -150,8 +150,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             const success = urlParams.get('success');
             if(error) showToast(error, 'error');
             if(success) showToast(success, 'success');
-
-            // Clean URL
             if(error || success) window.history.replaceState({}, document.title, window.location.pathname);
 
             // Slider
@@ -165,7 +163,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }, 4000);
             }
 
-            // Functions
             window.playVideo = function(id) {
                 document.getElementById(id + '-cover').style.display = 'none';
                 document.getElementById(id + '-player').style.display = 'block';
@@ -231,7 +228,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 
 // --- ROUTES ---
 
-// 1. Home Page
+// Home Page
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
@@ -494,111 +491,34 @@ app.get("/movie/:id", async (c) => {
     );
 });
 
-// AUTH - Login with Error Handling & Remember Me
+// AUTH
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><label class="flex items-center text-gray-400 text-xs"><input type="checkbox" name="remember" class="mr-2 accent-red-600" /> Remember Me</label><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
-
 app.post("/login", async (c) => { 
     const body = await c.req.parseBody();
     const user = await getUser(body["username"] as string);
-    
     if (user && user.password === body["password"]) { 
-        // Remember Me Logic (7 Days vs Session)
-        const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; // 7 days or Session
+        const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; 
         setCookie(c, "user_session", String(body["username"]), { path: "/", maxAge }); 
         return c.redirect("/profile"); 
     } 
-    // Redirect with Error for Toast
     return c.redirect("/login?error=Invalid Username or Password"); 
 });
-
-// AUTH - Signup with Error Handling
 app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Create Account</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Sign Up</button><p class="text-xs text-gray-500 text-center mt-4">Has account? <a href="/login" class="text-white font-bold">Login</a></p></form></div></div></Layout>));
+app.post("/signup", async (c) => { const { username, password } = await c.req.parseBody(); if (await getUser(username as string)) return c.redirect("/signup?error=User already exists!"); const newUser: User = { username: String(username), password: String(password), expiryDate: null, favorites: [] }; await kv.set(["users", String(username)], newUser); return c.redirect("/login?success=Account created successfully!"); });
 
-app.post("/signup", async (c) => { 
-    const { username, password } = await c.req.parseBody(); 
-    if (await getUser(username as string)) return c.redirect("/signup?error=User already exists!"); 
-    const newUser: User = { username: String(username), password: String(password), expiryDate: null, favorites: [] }; 
-    await kv.set(["users", String(username)], newUser); 
-    // Redirect with Success for Toast
-    return c.redirect("/login?success=Account created successfully!"); 
-});
-
-// PROFILE - With Pricing Table
+// PROFILE
 app.get("/profile", async (c) => { 
     const user = await getCurrentUser(c); 
     if (!user) return c.redirect("/login"); 
     const premium = isPremium(user); 
     const daysLeft = user.expiryDate ? Math.ceil((new Date(user.expiryDate).getTime() - Date.now()) / 86400000) : 0; 
-
-    // Pricing Plans Data
-    const plans = [
-        { name: "1 Month", price: "700 Ks", days: 30 },
-        { name: "3 Months", price: "1,500 Ks", days: 90, popular: true },
-        { name: "5 Months", price: "2,200 Ks", days: 150 },
-        { name: "1 Year", price: "5,000 Ks", days: 365 },
-    ];
-
-    return c.html(
-        <Layout user={user}>
-            <div class="p-4 max-w-4xl mx-auto">
-                {/* User Info */}
-                <div class="bg-[#1f1f1f] p-6 rounded-xl flex items-center gap-6 mb-8 border border-zinc-800 shadow-lg">
-                    <div class="w-20 h-20 bg-gradient-to-br from-red-600 to-red-800 rounded-full flex items-center justify-center text-3xl font-bold shadow-lg shadow-red-900/50">
-                        {user.username[0].toUpperCase()}
-                    </div>
-                    <div>
-                        <h2 class="text-2xl font-bold mb-1">{user.username}</h2>
-                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black border border-zinc-700 text-sm">
-                            <span class={premium ? "w-2 h-2 rounded-full bg-green-500" : "w-2 h-2 rounded-full bg-gray-500"}></span>
-                            <span class={premium ? "text-green-400 font-bold" : "text-gray-400"}>{premium ? `VIP Active (${daysLeft} days)` : "Free Plan"}</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Redeem Section */}
-                <div class="bg-[#1f1f1f] p-6 rounded-xl mb-8 border border-zinc-800">
-                    <h3 class="font-bold mb-4 text-gray-300 uppercase text-xs tracking-wider">Activate VIP</h3>
-                    <form action="/profile/redeem" method="post" class="flex gap-2">
-                        <input name="key" placeholder="Enter VIP Code (e.g. VIP-12345)" required class="input-box" />
-                        <button class="btn-primary whitespace-nowrap">Redeem Code</button>
-                    </form>
-                </div>
-
-                {/* Pricing Table */}
-                <h3 class="font-bold mb-4 text-xl text-yellow-500"><i class="fa-solid fa-crown mr-2"></i> Premium Plans</h3>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    {plans.map(p => (
-                        <div class={`relative bg-black p-4 rounded-xl border ${p.popular ? 'border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'border-zinc-800'} text-center flex flex-col justify-center`}>
-                            {p.popular && <div class="absolute -top-3 left-0 right-0 mx-auto w-fit bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full">MOST POPULAR</div>}
-                            <h4 class="text-gray-400 text-sm mb-1">{p.name}</h4>
-                            <div class="text-xl font-black text-white mb-2">{p.price}</div>
-                        </div>
-                    ))}
-                </div>
-
-                <a href="/logout" class="block w-full bg-zinc-900 border border-zinc-700 text-center py-3 rounded-lg text-red-500 font-bold hover:bg-red-900/10 transition">Log Out</a>
-            </div>
-        </Layout>
-    ); 
+    const plans = [{ name: "1 Month", price: "700 Ks", days: 30 }, { name: "3 Months", price: "1,500 Ks", days: 90, popular: true }, { name: "5 Months", price: "2,200 Ks", days: 150 }, { name: "1 Year", price: "5,000 Ks", days: 365 }];
+    return c.html(<Layout user={user}><div class="p-4 max-w-4xl mx-auto"><div class="bg-[#1f1f1f] p-6 rounded-xl flex items-center gap-6 mb-8 border border-zinc-800 shadow-lg"><div class="w-20 h-20 bg-gradient-to-br from-red-600 to-red-800 rounded-full flex items-center justify-center text-3xl font-bold shadow-lg shadow-red-900/50">{user.username[0].toUpperCase()}</div><div><h2 class="text-2xl font-bold mb-1">{user.username}</h2><div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black border border-zinc-700 text-sm"><span class={premium ? "w-2 h-2 rounded-full bg-green-500" : "w-2 h-2 rounded-full bg-gray-500"}></span><span class={premium ? "text-green-400 font-bold" : "text-gray-400"}>{premium ? `VIP Active (${daysLeft} days)` : "Free Plan"}</span></div></div></div><div class="bg-[#1f1f1f] p-6 rounded-xl mb-8 border border-zinc-800"><h3 class="font-bold mb-4 text-gray-300 uppercase text-xs tracking-wider">Activate VIP</h3><form action="/profile/redeem" method="post" class="flex gap-2"><input name="key" placeholder="Enter VIP Code (e.g. VIP-12345)" required class="input-box" /><button class="btn-primary whitespace-nowrap">Redeem Code</button></form></div><h3 class="font-bold mb-4 text-xl text-yellow-500"><i class="fa-solid fa-crown mr-2"></i> Premium Plans</h3><div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">{plans.map(p => (<div class={`relative bg-black p-4 rounded-xl border ${p.popular ? 'border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'border-zinc-800'} text-center flex flex-col justify-center`}>{p.popular && <div class="absolute -top-3 left-0 right-0 mx-auto w-fit bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full">MOST POPULAR</div>}<h4 class="text-gray-400 text-sm mb-1">{p.name}</h4><div class="text-xl font-black text-white mb-2">{p.price}</div></div>))}</div><a href="/logout" class="block w-full bg-zinc-900 border border-zinc-700 text-center py-3 rounded-lg text-red-500 font-bold hover:bg-red-900/10 transition">Log Out</a></div></Layout>); 
 });
-
-app.post("/profile/redeem", async (c) => { 
-    const user = await getCurrentUser(c); 
-    if (!user) return c.redirect("/login"); 
-    const { key } = await c.req.parseBody(); 
-    const keyData = await kv.get<VipKey>(["keys", String(key)]); 
-    if (!keyData.value) return c.redirect("/profile?error=Invalid VIP Key!"); 
-    const currentExpiry = user.expiryDate && new Date(user.expiryDate) > new Date() ? new Date(user.expiryDate) : new Date(); 
-    currentExpiry.setDate(currentExpiry.getDate() + keyData.value.days); 
-    user.expiryDate = currentExpiry.toISOString(); 
-    await kv.set(["users", user.username], user); 
-    await kv.delete(["keys", String(key)]); 
-    return c.redirect("/profile?success=VIP Activated Successfully!"); 
-});
-
+app.post("/profile/redeem", async (c) => { const user = await getCurrentUser(c); if (!user) return c.redirect("/login"); const { key } = await c.req.parseBody(); const keyData = await kv.get<VipKey>(["keys", String(key)]); if (!keyData.value) return c.redirect("/profile?error=Invalid VIP Key!"); const currentExpiry = user.expiryDate && new Date(user.expiryDate) > new Date() ? new Date(user.expiryDate) : new Date(); currentExpiry.setDate(currentExpiry.getDate() + keyData.value.days); user.expiryDate = currentExpiry.toISOString(); await kv.set(["users", user.username], user); await kv.delete(["keys", String(key)]); return c.redirect("/profile?success=VIP Activated Successfully!"); });
 app.get("/logout", (c) => { deleteCookie(c, "user_session"); return c.redirect("/"); });
 
-// --- ADMIN ROUTES (Same as before) ---
+// --- ADMIN ROUTES ---
 const adminAuth = async (c: any, next: any) => {
   const session = getCookie(c, "admin_session");
   if (session === Deno.env.get("ADMIN_PASSWORD")) await next();
@@ -606,6 +526,7 @@ const adminAuth = async (c: any, next: any) => {
 };
 app.get("/admin", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black"><form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80"><h2 class="font-bold text-center mb-4">Admin Login</h2><input type="password" name="password" placeholder="Key" class="input-box mb-4" /><button class="btn-primary w-full">Enter</button></form></div></Layout>));
 app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
+
 app.get("/admin/dashboard", adminAuth, async (c) => {
     const movies = await getMovies();
     const keys = await getKeys();
@@ -622,6 +543,7 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                 </div>
                 <div class="grid lg:grid-cols-2 gap-6">
                     <div class="space-y-6">
+                        {/* Add/Edit Movie */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4">
                             <h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2>
                             <form action="/admin/movie/save" method="post" class="space-y-2 text-sm">
@@ -638,8 +560,25 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                 {editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel Edit</a>}
                             </form>
                         </div>
-                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700"><h2 class="font-bold mb-3 text-sm">VIP Keys</h2><form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form><div class="mt-2 max-h-32 overflow-y-auto">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div></div>
+                        {/* VIP Keys */}
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700">
+                            <h2 class="font-bold mb-3 text-sm">VIP Keys</h2>
+                            <form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form>
+                            <div class="mt-2 max-h-32 overflow-y-auto">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div>
+                        </div>
+                        {/* User Password Reset */}
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 border-red-900/50">
+                            <h2 class="font-bold mb-3 text-sm text-red-500">User Manager (Reset Password)</h2>
+                            <form action="/admin/user/reset" method="post" class="flex flex-col gap-2">
+                                <input name="username" placeholder="Username" required class="input-box text-sm" />
+                                <div class="flex gap-2">
+                                    <input name="newpass" placeholder="New Password" required class="input-box text-sm" />
+                                    <button class="btn-primary text-sm whitespace-nowrap">Reset</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
+                    {/* Movie List */}
                     <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 h-fit">
                         <div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div>
                         <div class="space-y-2 max-h-[80vh] overflow-y-auto pr-2">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div>
@@ -649,8 +588,23 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
         </Layout>
     );
 });
+
 app.post("/admin/movie/save", adminAuth, async (c) => { const body = await c.req.parseBody(); const epString = body["episodeList"] as string; const episodes: Episode[] = []; if(epString && epString.trim().length > 0) { epString.split('\n').forEach(line => { const parts = line.split('|'); if(parts.length >= 2) { episodes.push({ name: parts[0].trim(), url: parts.slice(1).join('|').trim() }); } }); } const movie = { ...body, id: body["id"], createdAt: Number(body["createdAt"]), episodes }; await kv.set(["movies", movie.id as string], movie); return c.redirect("/admin/dashboard"); });
 app.post("/admin/movie/delete/:id", adminAuth, async (c) => { await kv.delete(["movies", c.req.param("id")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/create", adminAuth, async (c) => { const { days } = await c.req.parseBody(); const code = "VIP-" + Math.random().toString(36).substring(2, 7).toUpperCase(); await kv.set(["keys", code], { code, days: parseInt(String(days)) }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/delete/:code", adminAuth, async (c) => { await kv.delete(["keys", c.req.param("code")]); return c.redirect("/admin/dashboard"); });
+
+// Admin: Reset User Password
+app.post("/admin/user/reset", adminAuth, async (c) => {
+    const { username, newpass } = await c.req.parseBody();
+    const user = await getUser(String(username));
+    
+    if (user) {
+        user.password = String(newpass);
+        await kv.set(["users", String(username)], user);
+        return c.redirect("/admin/dashboard?success=Password updated");
+    }
+    return c.redirect("/admin/dashboard?error=User not found");
+});
+
 Deno.serve(app.fetch);
