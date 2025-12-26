@@ -88,29 +88,28 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
         .custom-scroll::-webkit-scrollbar-track { background: #000; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-        
         #toast-box { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold; display: flex; items-center; gap: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideIn 0.5s ease; min-width: 250px; }
         .toast.error { background: #E50914; border-left: 5px solid #ff9999; }
         .toast.success { background: #2ecc71; border-left: 5px solid #a8e6cf; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        
         #page-loader { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; transition: opacity 0.3s; pointer-events: none; opacity: 0; }
         #page-loader.active { pointer-events: all; opacity: 1; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
         .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
         .slide.active { opacity: 1; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
-        
         .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
         .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
         .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
-        
         .video-loader { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: #000; z-index: 20; }
         .video-loader .spinner { border-color: #333; border-top-color: #E50914; }
+        
+        /* Ensure download button is visible in native controls */
+        video::-internal-media-controls-download-button { display:block !important; }
+        video::-webkit-media-controls-enclosure { overflow:visible !important; }
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
@@ -123,21 +122,30 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
-            
-            // Slider
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
             
-            // --- VIDEO PLAYER LOGIC ---
-            window.injectVideo = function(containerId, htmlContent) {
-                const container = document.getElementById(containerId);
-                const cover = document.getElementById(containerId + '-cover');
-                const loader = document.getElementById(containerId + '-loader');
+            // --- ROBUST VIDEO LOADER ---
+            window.loadVideo = function(url, type) {
+                const container = document.getElementById('video-player');
+                const cover = document.getElementById('video-cover');
+                const loader = document.getElementById('video-player-loader');
                 
-                cover.style.display = 'none';
+                // Show local loader
+                if(cover) cover.style.display = 'none';
                 loader.style.display = 'flex';
                 
-                container.innerHTML = htmlContent;
+                let html = '';
+                if(type === 'embed' || url.includes('<iframe')) {
+                    html = url.includes('<iframe') ? url : '<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
+                    // Hide loader after delay for iframe
+                    setTimeout(() => loader.style.display = 'none', 1500);
+                } else {
+                    // Standard Video Tag (Supports 3-dots download)
+                    html = '<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>';
+                }
+                
+                container.innerHTML = html;
                 container.style.display = 'block';
                 
                 const video = container.querySelector('video');
@@ -145,40 +153,13 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     video.addEventListener('loadeddata', () => loader.style.display = 'none');
                     video.addEventListener('waiting', () => loader.style.display = 'flex');
                     video.addEventListener('playing', () => loader.style.display = 'none');
-                    video.play().catch(e => console.log("Autoplay prevented"));
-                } else {
-                    setTimeout(() => loader.style.display = 'none', 1500);
+                    video.play().catch(e => console.log("Autoplay blocked, user must interact"));
                 }
-            }
-
-            window.changeEpisode = function(url, type) { 
-                const container = document.getElementById('video-player'); 
-                const cover = document.getElementById('video-cover');
-                const loader = document.getElementById('video-player-loader');
-                
-                cover.style.display = 'none';
-                loader.style.display = 'flex'; 
-                
-                // Allow Download: removed controlsList="nodownload" and oncontextmenu="return false"
-                if(type==='embed'||url.includes('<iframe')){ 
-                    container.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; 
-                    setTimeout(() => loader.style.display = 'none', 1500);
-                } else { 
-                    container.innerHTML='<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; 
-                    const video = container.querySelector('video');
-                    video.addEventListener('loadeddata', () => loader.style.display = 'none');
-                    video.addEventListener('waiting', () => loader.style.display = 'flex');
-                    video.addEventListener('playing', () => loader.style.display = 'none');
-                } 
-                container.style.display='block'; 
-                window.scrollTo({top:0,behavior:'smooth'}); 
             }
             
             window.filterMovies = function(val) { document.querySelectorAll('.movie-item').forEach(i => i.style.display=i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase())?'flex':'none'); }
         });
-        
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
-        
         let page = 1; let isLoading = false; let hasMore = true;
         async function loadMoreMovies(category) {
             if(isLoading || !hasMore) return;
@@ -208,7 +189,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 // 5. PUBLIC ROUTES
 // =======================
 
-// Home Page (Horizontal Scroll)
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
@@ -222,13 +202,12 @@ app.get("/", async (c) => {
                  <input name="q" placeholder="Search movies..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none" />
              </form>
         </div>
-      {sliderMovies.length > 0 && (<div class="slider-container">{sliderMovies.map((m, idx) => (<div class={`slide ${idx === 0 ? 'active' : ''}`}><img src={m.coverUrl} /><div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div><div class="absolute bottom-4 left-4 right-4"><span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span><h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1><a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a></div></div>))}</div>)}
+      {sliderMovies.length > 0 && (<div class="slider-container">{sliderMovies.map((m, idx) => (<div class={`slide ${idx === 0 ? 'active' : ''}`}><img src={m.coverUrl} /><div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div><div class="absolute bottom-4 left-4 right-4"><span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span><h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1><button onclick={`loadVideo('/movie/${m.id}', 'direct')`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</button></div></div>))}</div>)}
       <div class="px-3 py-6 space-y-8">{sections.map(cat => { const catMovies = allMovies.filter(m => m.category === cat).slice(0, 8); if (catMovies.length === 0) return null; return (<div><div class="flex justify-between items-end mb-3 px-1"><h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2><a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a></div><div class="h-scroll-section custom-scroll">{catMovies.map(m => (<a href={`/movie/${m.id}`} class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden active:scale-95 transition-transform"><img src={m.posterUrl} /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3></div></a>))}</div></div>)})}</div>
     </Layout>
   );
 });
 
-// JSON API
 app.get("/api/list", async (c) => {
     const cat = c.req.query("cat") || "Movies";
     const page = parseInt(c.req.query("page") || "1");
@@ -240,7 +219,6 @@ app.get("/api/list", async (c) => {
     return c.json({ movies });
 });
 
-// Category
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -310,19 +288,18 @@ app.get("/movie/:id", async (c) => {
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
 
-    let videoHtml = "";
+    let playerUrl = "";
     let secureDownloadUrl = "";
 
     if (premium) {
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
-            videoHtml = initialStreamUrl.includes("<iframe") ? initialStreamUrl : `<iframe src="${initialStreamUrl}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`;
+            playerUrl = initialStreamUrl;
         } else {
             let realUrl = initialStreamUrl;
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
-            // ENABLE DOWNLOAD: controlsList and oncontextmenu removed!
-            videoHtml = `<video controls class="w-full h-full" autoplay preload="metadata"><source src="/stream/${token}" type="video/mp4"></video>`;
+            playerUrl = `/stream/${token}`;
         }
 
         if (movie.downloadUrl) {
@@ -339,14 +316,12 @@ app.get("/movie/:id", async (c) => {
            <div class="w-full aspect-video bg-black relative shadow-lg group">
               {premium ? (
                   <>
-                    <div id="video-cover" class="absolute inset-0 z-20">
-                        <img src={displayImage} class="w-full h-full object-cover opacity-50" />
+                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer" onclick={`loadVideo('${playerUrl}', '${movie.linkType}')`}>
+                        <img src={displayImage} class="w-full h-full object-cover" />
                     </div>
-                    {/* LOADING SPINNER FOR VIDEO */}
-                    <div id="video-player-loader" class="video-loader">
-                        <div class="spinner"></div>
-                    </div>
-                    {/* VIDEO PLAYER */}
+                    {/* LOADING SPINNER */}
+                    <div id="video-player-loader" class="video-loader"><div class="spinner"></div></div>
+                    {/* PLAYER */}
                     <div id="video-player" class="w-full h-full hidden"></div>
                   </>
               ) : (
@@ -381,7 +356,7 @@ app.get("/movie/:id", async (c) => {
                {premium && (
                    <div class="flex gap-3 mb-6">
                         {movie.category !== "Series" && (
-                            <button onclick={`injectVideo('video-player', \`${videoHtml.replace(/`/g, '\\`')}\`)`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
+                            <button onclick={`loadVideo('${playerUrl}', '${movie.linkType}')`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
                                 <i class="fa-solid fa-play"></i> Play Movie
                             </button>
                         )}
@@ -400,7 +375,7 @@ app.get("/movie/:id", async (c) => {
                        <h3 class="font-bold text-gray-300 mb-2">Episodes</h3>
                        <div class="grid grid-cols-3 md:grid-cols-4 gap-2 max-h-60 overflow-y-auto custom-scroll">
                            {episodes.map(ep => (
-                               <button onclick={`changeEpisode('${ep.url}', '${movie.linkType}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-3 px-1 rounded truncate text-center border border-zinc-700 transition-colors">
+                               <button onclick={`loadVideo('${ep.url}', '${movie.linkType}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-3 px-1 rounded truncate text-center border border-zinc-700 transition-colors">
                                    {ep.name}
                                </button>
                            ))}
