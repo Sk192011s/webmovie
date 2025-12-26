@@ -6,6 +6,11 @@ const app = new Hono();
 const kv = await Deno.openKv();
 
 // --- Types ---
+interface Episode {
+  name: string;
+  url: string;
+}
+
 interface Movie {
   id: string;
   title: string;
@@ -15,7 +20,8 @@ interface Movie {
   description: string;
   tags: string;
   year: string;
-  streamUrl: string;
+  streamUrl: string; // Used for Movies
+  episodes?: Episode[]; // Used for Series
   linkType: "direct" | "embed";
   downloadUrl?: string;
   createdAt: number;
@@ -79,7 +85,6 @@ function isPremium(user: User | null) {
   return new Date(user.expiryDate) > new Date();
 }
 
-// Link Resolving (Now purely internal)
 async function resolveRedirect(url: string) {
   try {
     const res = await fetch(url, { method: "HEAD", redirect: "follow" });
@@ -100,13 +105,9 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
       <style>{`
         body { background-color: #000; color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
-        
-        /* FIX: Allow selection on inputs only */
         * { user-select: none; -webkit-user-select: none; }
         input, textarea { user-select: text !important; -webkit-user-select: text !important; }
-        
-        /* Protect Images */
-        img { pointer-events: none; -webkit-touch-callout: none; }
+        img { pointer-events: none; }
 
         .glass { background: #1a1a1a; border: 1px solid #333; }
         .input-box { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 4px; width: 100%; outline: none; }
@@ -117,7 +118,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        .slider-container { position: relative; width: 100%; height: 50vh; overflow: hidden; }
+        /* FIXED SLIDER: Aspect Ratio 16:9 */
+        .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
         .slide.active { opacity: 1; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
@@ -125,46 +127,45 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             const loader = document.getElementById('page-loader');
-            // Disable Right Click Globally except inputs
-            document.addEventListener('contextmenu', event => {
-                if (event.target.nodeName !== 'INPUT' && event.target.nodeName !== 'TEXTAREA') {
-                    event.preventDefault();
-                }
-            });
-
-            document.querySelectorAll('a').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    const href = link.getAttribute('href');
-                    if(href && href.startsWith('/') && !href.startsWith('#')) loader.classList.add('active');
-                });
-            });
-            document.querySelectorAll('form').forEach(form => form.addEventListener('submit', () => loader.classList.add('active')));
+            document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA') e.preventDefault(); });
+            document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { if(l.getAttribute('href')?.startsWith('/')) loader.classList.add('active'); }));
+            document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
 
+            // Slider
             const slides = document.querySelectorAll('.slide');
             if(slides.length > 1) {
-                let currentSlide = 0;
+                let current = 0;
                 setInterval(() => {
-                    slides[currentSlide].classList.remove('active');
-                    currentSlide = (currentSlide + 1) % slides.length;
-                    slides[currentSlide].classList.add('active');
+                    slides[current].classList.remove('active');
+                    current = (current + 1) % slides.length;
+                    slides[current].classList.add('active');
                 }, 4000);
             }
 
+            // Player Logic
             window.playVideo = function(id) {
                 document.getElementById(id + '-cover').style.display = 'none';
                 document.getElementById(id + '-player').style.display = 'block';
-                // Auto play if possible
                 const v = document.querySelector('#' + id + '-player video');
                 if(v) v.play();
             }
 
+            // Series Episode Changer
+            window.changeEpisode = function(url, type) {
+                const container = document.getElementById('video-player');
+                if(type === 'embed' || url.includes('<iframe')) {
+                    container.innerHTML = url.includes('<iframe') ? url : '<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
+                } else {
+                    container.innerHTML = '<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>';
+                }
+                document.getElementById('video-cover').style.display = 'none';
+                container.style.display = 'block';
+                window.scrollTo({top:0, behavior:'smooth'});
+            }
+
             window.filterMovies = function(val) {
-                const items = document.querySelectorAll('.movie-item');
-                items.forEach(item => {
-                    const title = item.getAttribute('data-title').toLowerCase();
-                    item.style.display = title.includes(val.toLowerCase()) ? 'flex' : 'none';
-                });
+                document.querySelectorAll('.movie-item').forEach(i => i.style.display = i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase()) ? 'flex' : 'none');
             }
         });
       `}} />
@@ -178,9 +179,9 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             <a href="/" class="text-xl font-black text-red-600 tracking-tighter italic">GOLD FLIX</a>
             <div class="flex gap-4 text-xs font-bold text-gray-400">
               <a href="/" class="hover:text-white">Home</a>
+              <a href="/favorites" class="hover:text-red-500">Saved</a>
               <a href="/category/Movies" class="hover:text-white">Movies</a>
               <a href="/category/Series" class="hover:text-white">Series</a>
-              <a href="/category/Adult" class="text-red-500">18+</a>
               {props.user ? <a href="/profile" class="text-white">Me</a> : <a href="/login">Login</a>}
             </div>
           </div>
@@ -208,7 +209,7 @@ app.get("/", async (c) => {
         <div class="p-3 bg-black sticky top-[50px] z-30 shadow-md">
              <form action="/search" method="get" class="relative">
                  <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-500"></i>
-                 <input name="q" placeholder="Search movies..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none" />
+                 <input name="q" placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none" />
              </form>
         </div>
 
@@ -220,7 +221,7 @@ app.get("/", async (c) => {
                      <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div>
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
-                         <h1 class="text-2xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
+                         <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm">
                             <i class="fa-solid fa-play"></i> Play
                          </a>
@@ -256,7 +257,7 @@ app.get("/", async (c) => {
   );
 });
 
-// Search Result Page
+// Search
 app.get("/search", async (c) => {
     const user = await getCurrentUser(c);
     const query = c.req.query("q")?.toLowerCase() || "";
@@ -286,7 +287,7 @@ app.get("/search", async (c) => {
     );
 });
 
-// Category Page
+// Category
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -315,17 +316,51 @@ app.get("/category/:cat", async (c) => {
     );
 });
 
-// *** SECURE STREAM ROUTE (TOKEN SYSTEM) ***
+// Favorites Page
+app.get("/favorites", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const allMovies = await getMovies();
+    const favs = allMovies.filter(m => user.favorites?.includes(m.id));
+
+    return c.html(
+        <Layout user={user} title="Saved">
+            <div class="p-4">
+                <h1 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-heart text-red-600"></i> My Saved Movies</h1>
+                <div class="grid grid-cols-3 gap-2">
+                    {favs.map(m => (
+                         <a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden">
+                            <img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" />
+                            <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div>
+                         </a>
+                    ))}
+                </div>
+                {favs.length===0 && <p class="text-gray-500 text-center mt-10">No saved movies.</p>}
+            </div>
+        </Layout>
+    );
+});
+
+// Toggle Favorite API
+app.post("/api/fav", async (c) => {
+    const user = await getCurrentUser(c);
+    if (!user) return c.redirect("/login");
+    const { movieId } = await c.req.parseBody();
+    const id = String(movieId);
+    
+    if (!user.favorites) user.favorites = [];
+    if (user.favorites.includes(id)) user.favorites = user.favorites.filter(f => f !== id);
+    else user.favorites.push(id);
+    
+    await kv.set(["users", user.username], user);
+    return c.redirect(c.req.header("Referer") || "/");
+});
+
+// *** STREAM ROUTE ***
 app.get("/stream/:token", async (c) => {
     const token = c.req.param("token");
-    // Get the real URL from KV using the token
     const entry = await kv.get(["stream_tokens", token]);
-    
-    if (!entry.value) {
-        return c.text("Link Expired or Invalid", 403);
-    }
-
-    // Redirect to real URL (This masks the URL in the HTML source code)
+    if (!entry.value) return c.text("Link Expired", 403);
     return c.redirect(entry.value as string);
 });
 
@@ -337,27 +372,27 @@ app.get("/movie/:id", async (c) => {
     if (!movie) return c.text("Not Found", 404);
   
     const premium = isPremium(user);
+    const isFav = user?.favorites?.includes(id);
     const displayImage = movie.coverUrl || movie.posterUrl; 
 
-    let playerUrl = "";
+    // Handle Series vs Movie URL
+    let initialStreamUrl = movie.streamUrl;
+    let episodes = movie.episodes || [];
     
-    // Only generate token if user is premium
+    // If Series and has episodes, default to first episode
+    if (movie.category === "Series" && episodes.length > 0) {
+        initialStreamUrl = episodes[0].url;
+    }
+
+    let playerUrl = "";
     if (premium) {
-        if (movie.linkType === "embed" || movie.streamUrl.includes("<iframe")) {
-            // Embed codes are just HTML
-            playerUrl = movie.streamUrl;
+        if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
+            playerUrl = initialStreamUrl;
         } else {
-            // DIRECT LINK: Generate a secure temporary token
-            let realUrl = movie.streamUrl;
-            if (movie.linkType === "direct") {
-                realUrl = await resolveRedirect(movie.streamUrl);
-            }
-            
-            // Create Token (Lasts 3 Hours)
+            let realUrl = initialStreamUrl;
+            if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
-            
-            // Set the player source to the local /stream/token path
             playerUrl = `/stream/${token}`;
         }
     }
@@ -377,7 +412,7 @@ app.get("/movie/:id", async (c) => {
                         </div>
                     </div>
                     <div id="video-player" class="w-full h-full hidden">
-                        {movie.linkType === "embed" || movie.streamUrl.includes("<iframe") ? (
+                        {movie.linkType === "embed" || playerUrl.includes("<iframe") ? (
                              <div dangerouslySetInnerHTML={{__html: playerUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
                         ) : (
                              <video controls controlsList="nodownload" class="w-full h-full" poster={displayImage}>
@@ -399,11 +434,41 @@ app.get("/movie/:id", async (c) => {
            </div>
            
            <div class="p-4">
-               <h1 class="text-2xl font-bold text-white mb-2">{movie.title}</h1>
+               <div class="flex justify-between items-start mb-2">
+                   <h1 class="text-2xl font-bold text-white">{movie.title}</h1>
+                   {/* Favorite Button */}
+                   {user && (
+                       <form action="/api/fav" method="post">
+                           <input type="hidden" name="movieId" value={movie.id} />
+                           <button class="text-2xl p-2">
+                               <i class={`fa-solid fa-heart ${isFav ? 'text-red-600' : 'text-gray-600'}`}></i>
+                           </button>
+                       </form>
+                   )}
+               </div>
+               
                <div class="flex items-center gap-2 text-xs text-gray-400 mb-4">
                    <span class="bg-gray-800 px-2 py-0.5 rounded">{movie.year}</span>
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
+
+               {/* SERIES EPISODES LIST */}
+               {movie.category === "Series" && episodes.length > 0 && premium && (
+                   <div class="mb-6">
+                       <h3 class="font-bold text-gray-300 mb-2">Episodes</h3>
+                       <div class="grid grid-cols-3 md:grid-cols-4 gap-2 max-h-40 overflow-y-auto">
+                           {episodes.map(ep => (
+                               <button 
+                                 onclick={`changeEpisode('${ep.url}', '${movie.linkType}')`}
+                                 class="bg-zinc-800 hover:bg-red-600 text-xs py-2 px-1 rounded truncate text-center border border-zinc-700 transition-colors"
+                               >
+                                   {ep.name}
+                               </button>
+                           ))}
+                       </div>
+                   </div>
+               )}
+
                <p class="text-sm text-gray-300 leading-relaxed mb-6">{movie.description}</p>
                {premium && movie.downloadUrl && (
                    <a href={movie.downloadUrl} target="_blank" class="block w-full text-center bg-gray-800 py-3 rounded text-white font-bold text-sm">Download</a>
@@ -414,7 +479,7 @@ app.get("/movie/:id", async (c) => {
     );
 });
 
-// Auth & Profile Routes
+// Auth & Profile
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
 app.post("/login", async (c) => { const { username, password } = await c.req.parseBody(); const user = await getUser(username as string); if (user && user.password === password) { setCookie(c, "user_session", String(username), { path: "/", maxAge: 86400 * 30 }); return c.redirect("/profile"); } return c.text("Invalid", 401); });
 app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4"><h2 class="text-xl font-bold text-white mb-2">Create Account</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Sign Up</button><p class="text-xs text-gray-500 text-center mt-4">Has account? <a href="/login" class="text-white font-bold">Login</a></p></form></div></div></Layout>));
@@ -429,7 +494,6 @@ const adminAuth = async (c: any, next: any) => {
   if (session === Deno.env.get("ADMIN_PASSWORD")) await next();
   else return c.redirect("/admin");
 };
-
 app.get("/admin", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black"><form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80"><h2 class="font-bold text-center mb-4">Admin Login</h2><input type="password" name="password" placeholder="Key" class="input-box mb-4" /><button class="btn-primary w-full">Enter</button></form></div></Layout>));
 app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
 
@@ -438,6 +502,8 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
     const keys = await getKeys();
     const editId = c.req.query("edit");
     const editMovie = editId ? movies.find(m => m.id === editId) : null;
+    // Format existing episodes for textarea
+    const epString = editMovie?.episodes?.map(e => `${e.name}|${e.url}`).join('\n') || "";
 
     return c.html(
         <Layout title="Admin">
@@ -463,13 +529,22 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                 </div>
                                 <input name="posterUrl" placeholder="Poster URL (Portrait)" value={editMovie?.posterUrl} required class="input-box" />
                                 <input name="coverUrl" placeholder="Cover URL (Landscape - Slider)" value={editMovie?.coverUrl} required class="input-box border-yellow-500/50" />
+                                
+                                {/* Link Type */}
                                 <div class="p-2 bg-black rounded border border-zinc-800">
                                     <select name="linkType" class="input-box mb-2 text-xs">
                                         <option value="direct" selected={editMovie?.linkType==="direct"}>Direct Link (Auto-Resolve)</option>
                                         <option value="embed" selected={editMovie?.linkType==="embed"}>Embed Code / Iframe</option>
                                     </select>
-                                    <input name="streamUrl" placeholder="URL or Iframe Code" value={editMovie?.streamUrl} required class="input-box" />
+                                    <input name="streamUrl" placeholder="Movie URL (If Series, leave or put Ep1)" value={editMovie?.streamUrl} class="input-box" />
                                 </div>
+                                
+                                {/* SERIES EPISODES INPUT */}
+                                <div class="p-2 bg-black rounded border border-zinc-800">
+                                    <label class="text-xs text-yellow-500 mb-1 block">Series Episodes (Format: Name | URL)</label>
+                                    <textarea name="episodeList" placeholder="S1 Ep1 | https://...&#10;S1 Ep2 | https://..." rows={5} class="input-box font-mono text-xs whitespace-nowrap overflow-x-auto">{epString}</textarea>
+                                </div>
+
                                 <textarea name="description" placeholder="Desc" class="input-box">{editMovie?.description}</textarea>
                                 <button class="btn-primary w-full">{editMovie ? "Update Movie" : "Save Movie"}</button>
                                 {editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel Edit</a>}
@@ -510,7 +585,25 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
 
 app.post("/admin/movie/save", adminAuth, async (c) => {
     const body = await c.req.parseBody();
-    const movie = { ...body, id: body["id"], createdAt: Number(body["createdAt"]) };
+    
+    // Parse Episodes
+    const epString = body["episodeList"] as string;
+    const episodes: Episode[] = [];
+    if(epString && epString.trim().length > 0) {
+        epString.split('\n').forEach(line => {
+            const parts = line.split('|');
+            if(parts.length >= 2) {
+                episodes.push({ name: parts[0].trim(), url: parts.slice(1).join('|').trim() });
+            }
+        });
+    }
+
+    const movie = { 
+        ...body, 
+        id: body["id"], 
+        createdAt: Number(body["createdAt"]),
+        episodes: episodes // Save episodes array
+    };
     await kv.set(["movies", movie.id as string], movie);
     return c.redirect("/admin/dashboard");
 });
