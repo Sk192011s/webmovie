@@ -88,28 +88,30 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
         .custom-scroll::-webkit-scrollbar-track { background: #000; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        
         #toast-box { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold; display: flex; items-center; gap: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideIn 0.5s ease; min-width: 250px; }
         .toast.error { background: #E50914; border-left: 5px solid #ff9999; }
         .toast.success { background: #2ecc71; border-left: 5px solid #a8e6cf; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
         #page-loader { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; transition: opacity 0.3s; pointer-events: none; opacity: 0; }
         #page-loader.active { pointer-events: all; opacity: 1; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
         .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
         .slide.active { opacity: 1; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
         
-        /* HORIZONTAL SCROLL FIX */
         .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
         .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
         .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
         
-        video::-internal-media-controls-download-button { display:none; }
-        video::-webkit-media-controls-enclosure { overflow:hidden; }
-        video::-webkit-media-controls-panel { width: calc(100% + 30px); }
+        /* Video Player Specifics */
+        .video-loader { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: #000; z-index: 10; }
+        .video-loader .spinner { border-color: #333; border-top-color: #E50914; }
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
@@ -118,6 +120,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { const href=l.getAttribute('href'); if(href&&href.startsWith('/')&&!href.includes('logout')&&!href.includes('#')) loader.classList.add('active'); }));
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
+            
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
@@ -127,27 +130,58 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
             
-            // DATA SAVER PLAYER
+            // --- VIDEO PLAYER LOGIC (FIXED) ---
             window.injectVideo = function(containerId, htmlContent) {
                 const container = document.getElementById(containerId);
                 const cover = document.getElementById(containerId + '-cover');
-                // Inject HTML only when clicked
+                const loader = document.getElementById(containerId + '-loader');
+                
+                // 1. Hide cover, Show loader immediately
+                cover.style.display = 'none';
+                loader.style.display = 'flex';
+                
+                // 2. Inject Video
                 container.innerHTML = htmlContent;
                 container.style.display = 'block';
-                cover.style.display = 'none';
                 
-                // Auto play if it's a video tag
-                const v = container.querySelector('video');
-                if(v) v.play();
+                const video = container.querySelector('video');
+                if(video) {
+                    // 3. Listen for load event
+                    video.addEventListener('loadeddata', () => {
+                        loader.style.display = 'none'; // Hide loader when data arrives
+                    });
+                    video.addEventListener('waiting', () => {
+                        loader.style.display = 'flex'; // Show loader if buffering
+                    });
+                    video.addEventListener('playing', () => {
+                        loader.style.display = 'none'; // Hide loader when playing
+                    });
+                    video.play().catch(e => console.log("Autoplay prevented"));
+                } else {
+                    // Iframe case
+                    setTimeout(() => loader.style.display = 'none', 1000);
+                }
             }
 
             window.changeEpisode = function(url, type) { 
-                const c = document.getElementById('video-player'); 
-                // Only load when clicked
-                if(type==='embed'||url.includes('<iframe')){ c.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; }
-                else{ c.innerHTML='<video controls controlsList="nodownload" oncontextmenu="return false;" autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; } 
-                document.getElementById('video-cover').style.display='none'; 
-                c.style.display='block'; 
+                const container = document.getElementById('video-player'); 
+                const cover = document.getElementById('video-cover');
+                const loader = document.getElementById('video-player-loader');
+                
+                cover.style.display = 'none';
+                loader.style.display = 'flex'; // Show loader
+                
+                if(type==='embed'||url.includes('<iframe')){ 
+                    container.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; 
+                    setTimeout(() => loader.style.display = 'none', 1000);
+                } else { 
+                    container.innerHTML='<video controls controlsList="nodownload" oncontextmenu="return false;" autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; 
+                    const video = container.querySelector('video');
+                    video.addEventListener('loadeddata', () => loader.style.display = 'none');
+                    video.addEventListener('waiting', () => loader.style.display = 'flex');
+                    video.addEventListener('playing', () => loader.style.display = 'none');
+                } 
+                container.style.display='block'; 
                 window.scrollTo({top:0,behavior:'smooth'}); 
             }
             
@@ -155,10 +189,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         });
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
         
-        // INFINITE SCROLL LOGIC
-        let page = 1;
-        let isLoading = false;
-        let hasMore = true;
+        let page = 1; let isLoading = false; let hasMore = true;
         async function loadMoreMovies(category) {
             if(isLoading || !hasMore) return;
             isLoading = true;
@@ -167,31 +198,16 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             try {
                 const res = await fetch('/api/list?cat=' + category + '&page=' + page);
                 const data = await res.json();
-                if(data.movies.length === 0) {
-                    hasMore = false;
-                    document.getElementById('loading-indicator').style.display = 'none';
-                    return;
-                }
+                if(data.movies.length === 0) { hasMore = false; document.getElementById('loading-indicator').style.display = 'none'; return; }
                 const container = document.getElementById('movie-grid');
                 data.movies.forEach(m => {
-                    const el = document.createElement('a');
-                    el.href = '/movie/' + m.id;
-                    el.className = 'block bg-[#1f1f1f] rounded overflow-hidden';
-                    el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>';
-                    container.appendChild(el);
+                    const el = document.createElement('a'); el.href = '/movie/' + m.id; el.className = 'block bg-[#1f1f1f] rounded overflow-hidden';
+                    el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>'; container.appendChild(el);
                 });
             } catch(e) { console.error(e); }
-            isLoading = false;
-            document.getElementById('loading-indicator').style.display = 'none';
+            isLoading = false; document.getElementById('loading-indicator').style.display = 'none';
         }
-        
-        // Listen for scroll
-        window.addEventListener('scroll', () => {
-            if(window.location.pathname.startsWith('/category/') && (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500) {
-                const cat = window.location.pathname.split('/').pop();
-                loadMoreMovies(cat);
-            }
-        });
+        window.addEventListener('scroll', () => { if(window.location.pathname.startsWith('/category/') && (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500) { const cat = window.location.pathname.split('/').pop(); loadMoreMovies(cat); }});
       `}} />
     </head>
     <body><div id="page-loader"><div class="spinner"></div></div><div id="toast-box"></div>{!props.hideNav&&(<nav class="sticky top-0 z-40 bg-black/95 border-b border-white/10 px-4 py-3 shadow-lg"><div class="max-w-7xl mx-auto flex justify-between items-center"><a href="/" class="text-xl font-black text-red-600 tracking-tighter italic">GOLD FLIX</a><div class="flex gap-4 text-xs font-bold text-gray-400"><a href="/" class="hover:text-white">Home</a><a href="/favorites" class="hover:text-red-500">Saved</a><a href="/category/Movies" class="hover:text-white">Movies</a><a href="/category/Series" class="hover:text-white">Series</a>{props.user?<a href="/profile" class="text-white">Me</a>:<a href="/login">Login</a>}</div></div></nav>)}<main class="flex-grow w-full pb-10">{props.children}</main></body>
@@ -202,7 +218,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 // 5. PUBLIC ROUTES
 // =======================
 
-// Home Page (Horizontal Scroll Updated)
+// Home Page (Horizontal Scroll)
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
@@ -238,7 +254,7 @@ app.get("/", async (c) => {
 
       <div class="px-3 py-6 space-y-8">
         {sections.map(cat => {
-            const catMovies = allMovies.filter(m => m.category === cat).slice(0, 8); // Show 8 items
+            const catMovies = allMovies.filter(m => m.category === cat).slice(0, 8); 
             if (catMovies.length === 0) return null;
             return (
                 <div>
@@ -246,7 +262,7 @@ app.get("/", async (c) => {
                         <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2>
                         <a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
                     </div>
-                    {/* Horizontal Scroll Container */}
+                    {/* Horizontal Scroll */}
                     <div class="h-scroll-section custom-scroll">
                         {catMovies.map(m => (
                             <a href={`/movie/${m.id}`} class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden active:scale-95 transition-transform">
@@ -263,29 +279,22 @@ app.get("/", async (c) => {
   );
 });
 
-// JSON API for Infinite Scroll
+// JSON API
 app.get("/api/list", async (c) => {
     const cat = c.req.query("cat") || "Movies";
     const page = parseInt(c.req.query("page") || "1");
     const limit = 15;
-    
     const allMovies = await getMovies();
     const filtered = allMovies.filter((m) => m.category === cat);
-    
     const start = (page - 1) * limit;
-    const movies = filtered.slice(start, start + limit).map(m => ({
-        id: m.id, title: m.title, posterUrl: m.posterUrl
-    }));
-    
+    const movies = filtered.slice(start, start + limit).map(m => ({ id: m.id, title: m.title, posterUrl: m.posterUrl }));
     return c.json({ movies });
 });
 
-// Category Page (Infinite Scroll)
+// Category (Infinite Scroll)
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
-    
-    // Initial Load (First 15)
     const allMovies = await getMovies();
     const filtered = allMovies.filter((m) => m.category === cat);
     const initialMovies = filtered.slice(0, 15);
@@ -297,7 +306,6 @@ app.get("/category/:cat", async (c) => {
                     <h1 class="text-xl font-bold text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1>
                     <span class="bg-red-600 text-[10px] px-2 py-1 rounded text-white font-bold tracking-wider">{filtered.length} ITEMS</span>
                 </div>
-                
                 <div id="movie-grid" class="grid grid-cols-3 gap-2">
                     {initialMovies.map(m => (
                          <a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden">
@@ -306,8 +314,6 @@ app.get("/category/:cat", async (c) => {
                          </a>
                     ))}
                 </div>
-                
-                {/* Loading Indicator */}
                 <div id="loading-indicator" class="text-center py-4 hidden">
                     <i class="fa-solid fa-circle-notch fa-spin text-red-600 text-xl"></i>
                 </div>
@@ -346,7 +352,7 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & DOWNLOAD LOGIC (Data Saver)
+// 6. STREAM & DOWNLOAD LOGIC
 // =======================
 
 app.get("/stream/:token", async (c) => {
@@ -363,6 +369,7 @@ app.get("/dl/:token", async (c) => {
     return c.redirect(entry.value as string);
 });
 
+// MOVIE DETAIL (FIXED VIDEO LOADER)
 app.get("/movie/:id", async (c) => {
     const id = c.req.param("id");
     const movie = await getMovie(id);
@@ -377,7 +384,6 @@ app.get("/movie/:id", async (c) => {
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
 
-    // PREPARE HTML STRING FOR JS INJECTION (Data Saver)
     let videoHtml = "";
     let secureDownloadUrl = "";
 
@@ -389,8 +395,8 @@ app.get("/movie/:id", async (c) => {
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
-            // MP4 Tag String
-            videoHtml = `<video controls class="w-full h-full" autoplay><source src="/stream/${token}" type="video/mp4"></video>`;
+            // PRELOAD METADATA prevents huge data download until played
+            videoHtml = `<video controls controlsList="nodownload" oncontextmenu="return false;" class="w-full h-full" autoplay preload="metadata"><source src="/stream/${token}" type="video/mp4"></video>`;
         }
 
         if (movie.downloadUrl) {
@@ -403,19 +409,23 @@ app.get("/movie/:id", async (c) => {
     return c.html(
       <Layout user={user} title={movie.title}>
         <div class="max-w-4xl mx-auto">
-           {/* VIDEO CONTAINER - INITIALLY EMPTY FOR DATA SAVER */}
-           <div class="w-full aspect-video bg-black relative shadow-lg">
+           {/* VIDEO CONTAINER */}
+           <div class="w-full aspect-video bg-black relative shadow-lg group">
               {premium ? (
                   <>
-                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer group" onclick={`injectVideo('video-player', \`${videoHtml.replace(/`/g, '\\`')}\`)`}>
+                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer" onclick={`injectVideo('video-player', \`${videoHtml.replace(/`/g, '\\`')}\`)`}>
                         <img src={displayImage} class="w-full h-full object-cover" />
                         <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
-                            <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(229,9,20,0.6)] group-hover:scale-110 transition-transform">
+                            <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(229,9,20,0.6)] hover:scale-110 transition-transform">
                                 <i class="fa-solid fa-play text-white text-2xl ml-1"></i>
                             </div>
                         </div>
                     </div>
-                    {/* Empty Div - Filled by JS on Click */}
+                    {/* LOADING SPINNER FOR VIDEO */}
+                    <div id="video-player-loader" class="video-loader">
+                        <div class="spinner"></div>
+                    </div>
+                    {/* VIDEO PLAYER (Empty initially) */}
                     <div id="video-player" class="w-full h-full hidden"></div>
                   </>
               ) : (
