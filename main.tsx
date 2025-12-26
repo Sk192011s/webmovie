@@ -542,8 +542,8 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                     <a href="/" class="text-xs bg-black px-3 py-1 rounded">View App</a>
                 </div>
                 <div class="grid lg:grid-cols-2 gap-6">
+                    {/* LEFT COLUMN: MOVIE FORM */}
                     <div class="space-y-6">
-                        {/* Add/Edit Movie */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4">
                             <h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2>
                             <form action="/admin/movie/save" method="post" class="space-y-2 text-sm">
@@ -560,28 +560,31 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                 {editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel Edit</a>}
                             </form>
                         </div>
-                        {/* VIP Keys */}
+                    </div>
+
+                    {/* RIGHT COLUMN: KEYS, USERS, LIST */}
+                    <div class="space-y-6">
+                        {/* VIP KEYS (NOW AT TOP) */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700">
                             <h2 class="font-bold mb-3 text-sm">VIP Keys</h2>
                             <form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form>
                             <div class="mt-2 max-h-32 overflow-y-auto">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div>
                         </div>
-                        {/* User Password Reset */}
+
+                        {/* USER MANAGER */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 border-red-900/50">
-                            <h2 class="font-bold mb-3 text-sm text-red-500">User Manager (Reset Password)</h2>
+                            <h2 class="font-bold mb-3 text-sm text-red-500">Reset User Password</h2>
                             <form action="/admin/user/reset" method="post" class="flex flex-col gap-2">
                                 <input name="username" placeholder="Username" required class="input-box text-sm" />
-                                <div class="flex gap-2">
-                                    <input name="newpass" placeholder="New Password" required class="input-box text-sm" />
-                                    <button class="btn-primary text-sm whitespace-nowrap">Reset</button>
-                                </div>
+                                <div class="flex gap-2"><input name="newpass" placeholder="New Password" required class="input-box text-sm" /><button class="btn-primary text-sm whitespace-nowrap">Reset</button></div>
                             </form>
                         </div>
-                    </div>
-                    {/* Movie List */}
-                    <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 h-fit">
-                        <div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div>
-                        <div class="space-y-2 max-h-[80vh] overflow-y-auto pr-2">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div>
+
+                        {/* MOVIE LIST */}
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 h-fit">
+                            <div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div>
+                            <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-2">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -593,18 +596,6 @@ app.post("/admin/movie/save", adminAuth, async (c) => { const body = await c.req
 app.post("/admin/movie/delete/:id", adminAuth, async (c) => { await kv.delete(["movies", c.req.param("id")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/create", adminAuth, async (c) => { const { days } = await c.req.parseBody(); const code = "VIP-" + Math.random().toString(36).substring(2, 7).toUpperCase(); await kv.set(["keys", code], { code, days: parseInt(String(days)) }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/delete/:code", adminAuth, async (c) => { await kv.delete(["keys", c.req.param("code")]); return c.redirect("/admin/dashboard"); });
-
-// Admin: Reset User Password
-app.post("/admin/user/reset", adminAuth, async (c) => {
-    const { username, newpass } = await c.req.parseBody();
-    const user = await getUser(String(username));
-    
-    if (user) {
-        user.password = String(newpass);
-        await kv.set(["users", String(username)], user);
-        return c.redirect("/admin/dashboard?success=Password updated");
-    }
-    return c.redirect("/admin/dashboard?error=User not found");
-});
+app.post("/admin/user/reset", adminAuth, async (c) => { const { username, newpass } = await c.req.parseBody(); const user = await getUser(String(username)); if (user) { user.password = String(newpass); await kv.set(["users", String(username)], user); return c.redirect("/admin/dashboard?success=Password updated"); } return c.redirect("/admin/dashboard?error=User not found"); });
 
 Deno.serve(app.fetch);
