@@ -1,19 +1,18 @@
 /** @jsxImportSource hono/jsx */
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { crypto } from "std/crypto/mod.ts"; // Need standard crypto for hashing
+import { crypto } from "std/crypto/mod.ts";
 
 const app = new Hono();
 const kv = await Deno.openKv();
 
 // =======================
-// SECURITY FUNCTIONS (NEW)
+// SECURITY FUNCTIONS
 // =======================
 
-// Password Hashing Function
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + "YOUR_SECRET_SALT_2025"); // Add salt for extra security
+  const data = encoder.encode(password + "YOUR_SECRET_SALT_2025"); 
   const hash = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -30,9 +29,7 @@ interface Movie {
   linkType: "direct" | "embed"; downloadUrl?: string; createdAt: number;
 }
 interface User {
-  username: string;
-  passwordHash: string; // Changed from password to passwordHash
-  expiryDate: string | null; favorites: string[]; sessionId?: string;
+  username: string; passwordHash: string; expiryDate: string | null; favorites: string[]; sessionId?: string;
 }
 interface VipKey { code: string; days: number; }
 
@@ -167,20 +164,35 @@ app.get("/", async (c) => {
   );
 });
 
+// FIXED SEARCH: Prevent crash on null fields
 app.get("/search", async (c) => {
     const user = await getCurrentUser(c);
     const query = c.req.query("q")?.toLowerCase() || "";
     const allMovies = await getMovies();
-    const results = allMovies.filter(m => m.title.toLowerCase().includes(query) || m.tags.toLowerCase().includes(query));
+    // Safety check: title and tags might be undefined on old data
+    const results = allMovies.filter(m => 
+        (m.title && m.title.toLowerCase().includes(query)) || 
+        (m.tags && m.tags.toLowerCase().includes(query))
+    );
     return c.html(<Layout user={user}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>);
 });
 
+// UPDATED CATEGORY: Added Count Display
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
     const page = parseInt(c.req.query("page") || "1");
-    const { data, totalPages } = await getPaginatedMovies(cat, page, 15);
-    return c.html(<Layout user={user}><div class="px-3 py-6"><h1 class="text-xl font-bold mb-4 text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1><div class="grid grid-cols-3 gap-2">{data.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div><div class="flex justify-center gap-4 mt-8 text-sm font-bold">{page > 1 && <a href={`/category/${cat}?page=${page - 1}`} class="px-4 py-2 bg-gray-800 rounded">Prev</a>}<span class="py-2 px-4 text-gray-400">{page} / {totalPages || 1}</span>{page < totalPages && <a href={`/category/${cat}?page=${page + 1}`} class="px-4 py-2 bg-red-600 rounded">Next</a>}</div></div></Layout>);
+    const { data, total, totalPages } = await getPaginatedMovies(cat, page, 15);
+    return c.html(<Layout user={user}>
+        <div class="px-3 py-6">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-xl font-bold text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1>
+                <span class="bg-red-600 text-[10px] px-2 py-1 rounded text-white font-bold tracking-wider">{total} ITEMS</span>
+            </div>
+            <div class="grid grid-cols-3 gap-2">{data.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>
+            <div class="flex justify-center gap-4 mt-8 text-sm font-bold">{page > 1 && <a href={`/category/${cat}?page=${page - 1}`} class="px-4 py-2 bg-gray-800 rounded">Prev</a>}<span class="py-2 px-4 text-gray-400">{page} / {totalPages || 1}</span>{page < totalPages && <a href={`/category/${cat}?page=${page + 1}`} class="px-4 py-2 bg-red-600 rounded">Next</a>}</div>
+        </div>
+    </Layout>);
 });
 
 app.get("/favorites", async (c) => {
@@ -361,7 +373,6 @@ app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen
 app.post("/signup", async (c) => { 
     const { username, password } = await c.req.parseBody(); 
     if (await getUser(username as string)) return c.redirect("/signup?error=User already exists!"); 
-    // Hashing Password
     const passwordHash = await hashPassword(password as string);
     const newUser: User = { username: String(username), passwordHash, expiryDate: null, favorites: [], sessionId: "" }; 
     await kv.set(["users", String(username)], newUser); 
@@ -421,6 +432,7 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                     <a href="/" class="text-xs bg-black px-3 py-1 rounded">View App</a>
                 </div>
                 <div class="grid lg:grid-cols-2 gap-6">
+                    {/* LEFT COLUMN: MOVIE FORM */}
                     <div class="space-y-6">
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4">
                             <h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2>
@@ -455,16 +467,6 @@ app.post("/admin/movie/save", adminAuth, async (c) => { const body = await c.req
 app.post("/admin/movie/delete/:id", adminAuth, async (c) => { await kv.delete(["movies", c.req.param("id")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/create", adminAuth, async (c) => { const { days } = await c.req.parseBody(); const code = "VIP-" + Math.random().toString(36).substring(2, 7).toUpperCase(); await kv.set(["keys", code], { code, days: parseInt(String(days)) }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/delete/:code", adminAuth, async (c) => { await kv.delete(["keys", c.req.param("code")]); return c.redirect("/admin/dashboard"); });
-app.post("/admin/user/reset", adminAuth, async (c) => { 
-    const { username, newpass } = await c.req.parseBody(); 
-    const user = await getUser(String(username)); 
-    if (user) { 
-        // Hash new password
-        user.passwordHash = await hashPassword(String(newpass)); 
-        await kv.set(["users", String(username)], user); 
-        return c.redirect("/admin/dashboard?success=Password updated"); 
-    } 
-    return c.redirect("/admin/dashboard?error=User not found"); 
-});
+app.post("/admin/user/reset", adminAuth, async (c) => { const { username, newpass } = await c.req.parseBody(); const user = await getUser(String(username)); if (user) { user.passwordHash = await hashPassword(String(newpass)); await kv.set(["users", String(username)], user); return c.redirect("/admin/dashboard?success=Password updated"); } return c.redirect("/admin/dashboard?error=User not found"); });
 
 Deno.serve(app.fetch);
