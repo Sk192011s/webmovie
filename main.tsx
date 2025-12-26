@@ -35,6 +35,7 @@ interface User {
   password: string;
   expiryDate: string | null;
   favorites: string[];
+  sessionId?: string;
 }
 
 interface VipKey {
@@ -84,9 +85,20 @@ async function getKeys() {
 // =======================
 
 async function getCurrentUser(c: any) {
-  const username = getCookie(c, "user_session");
-  if (!username) return null;
-  return await getUser(username);
+  const authCookie = getCookie(c, "auth_session");
+  if (!authCookie) return null;
+
+  const [username, token] = authCookie.split(":");
+  if (!username || !token) return null;
+
+  const user = await getUser(username);
+  if (!user) return null;
+
+  if (user.sessionId !== token) {
+      return null; 
+  }
+
+  return user;
 }
 
 function isPremium(user: User | null) {
@@ -118,25 +130,24 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <style>{`
         body { background-color: #000; color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
         
-        /* Disable Text Selection except inputs */
+        /* Text Selection Disabled */
         * { user-select: none; -webkit-user-select: none; }
         input, textarea { user-select: text !important; -webkit-user-select: text !important; }
         img { pointer-events: none; }
 
-        /* Custom UI Classes */
+        /* UI Classes */
         .glass { background: #1a1a1a; border: 1px solid #333; }
         .input-box { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 4px; width: 100%; outline: none; transition: 0.3s; }
         .input-box:focus { border-color: #E50914; }
         .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; transition: 0.3s; cursor: pointer; }
         .btn-primary:active { transform: scale(0.95); }
         
-        /* Custom Scrollbar for Admin */
+        /* Scrollbar */
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: #111; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #555; }
 
-        /* Toast Notification */
+        /* Toast */
         #toast-box { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold; display: flex; items-center; gap: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideIn 0.5s ease; min-width: 250px; }
         .toast.error { background: #E50914; border-left: 5px solid #ff9999; }
@@ -149,24 +160,27 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Slider 16:9 Fixed */
+        /* Slider 16:9 */
         .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
         .slide.active { opacity: 1; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* NOTE: I removed the CSS that hid the download button so the 3 dots work natively */
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             const loader = document.getElementById('page-loader');
             
             document.addEventListener('contextmenu', e => { 
-                if(e.target.nodeName!=='INPUT' && e.target.nodeName!=='TEXTAREA') {
+                if(e.target.nodeName!=='INPUT' && e.target.nodeName!=='TEXTAREA' && e.target.nodeName!=='VIDEO') {
                     e.preventDefault(); 
                 }
             });
             
             document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { 
-                if(l.getAttribute('href')?.startsWith('/') && !l.getAttribute('href').includes('logout') && !l.getAttribute('href').includes('#')) loader.classList.add('active'); 
+                const href = l.getAttribute('href');
+                if(href && href.startsWith('/') && !href.includes('logout') && !href.includes('#')) loader.classList.add('active'); 
             }));
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
@@ -407,30 +421,25 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & TOKEN LOGIC
+// 6. STREAM & DOWNLOAD LOGIC (REDIRECT METHOD)
 // =======================
 
-// Secure Stream Redirect (With Referer Check)
+// Secure Stream Redirect
 app.get("/stream/:token", async (c) => {
     const token = c.req.param("token");
     const entry = await kv.get(["stream_tokens", token]);
-    
-    // Security: Check Referer (Simple Block)
-    const referer = c.req.header("Referer");
-    const origin = new URL(c.req.url).origin;
-    
     if (!entry.value) return c.text("Link Expired or Invalid", 403);
-    
-    // Optional: Uncomment to enforce streaming ONLY from your site
-    // if (referer && !referer.startsWith(origin)) return c.text("Access Denied: Direct Access Not Allowed", 403);
-
     return c.redirect(entry.value as string);
 });
 
+// Secure Download (Bandwidth Saver Redirect)
 app.get("/dl/:token", async (c) => {
     const token = c.req.param("token");
     const entry = await kv.get(["stream_tokens", token]);
     if (!entry.value) return c.text("Download Link Expired", 403);
+    
+    // REDIRECT to original URL (No Bandwidth usage)
+    // Browser handles the download. User can also right-click "Save Video As"
     return c.redirect(entry.value as string);
 });
 
@@ -453,16 +462,18 @@ app.get("/movie/:id", async (c) => {
     let secureDownloadUrl = "";
 
     if (premium) {
+        // Stream URL (Redirect)
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
             playerUrl = initialStreamUrl;
         } else {
             let realUrl = initialStreamUrl;
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
-            await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 });
+            await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); // 3 Hours
             playerUrl = `/stream/${token}`;
         }
 
+        // Download URL (Redirect)
         if (movie.downloadUrl) {
              const dlToken = crypto.randomUUID();
              await kv.set(["stream_tokens", dlToken], movie.downloadUrl, { expireIn: 3600 * 3 });
@@ -488,7 +499,8 @@ app.get("/movie/:id", async (c) => {
                         {movie.linkType === "embed" || playerUrl.includes("<iframe") ? (
                              <div dangerouslySetInnerHTML={{__html: playerUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
                         ) : (
-                             <video controls controlsList="nodownload" class="w-full h-full" poster={displayImage}>
+                             // ALLOW DOWNLOAD: Removed controlsList="nodownload" and oncontextmenu="return false;"
+                             <video controls class="w-full h-full" poster={displayImage}>
                                  <source src={playerUrl} type="video/mp4" />
                              </video>
                         )}
@@ -534,6 +546,7 @@ app.get("/movie/:id", async (c) => {
                )}
 
                <p class="text-sm text-gray-300 leading-relaxed mb-6">{movie.description}</p>
+               
                {premium && secureDownloadUrl && (
                    <a href={secureDownloadUrl} target="_blank" class="block w-full text-center bg-zinc-800 hover:bg-red-600 py-3 rounded-lg text-white font-bold text-sm transition-colors mb-8 border border-zinc-700">
                        <i class="fa-solid fa-download mr-2"></i> Download This Movie / Series
@@ -573,8 +586,11 @@ app.post("/login", async (c) => {
     const body = await c.req.parseBody();
     const user = await getUser(body["username"] as string);
     if (user && user.password === body["password"]) { 
+        const sessionId = crypto.randomUUID();
+        user.sessionId = sessionId;
+        await kv.set(["users", user.username], user);
         const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; 
-        setCookie(c, "user_session", String(body["username"]), { path: "/", maxAge }); 
+        setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge }); 
         return c.redirect("/profile"); 
     } 
     return c.redirect("/login?error=Invalid Username or Password"); 
@@ -610,14 +626,7 @@ app.get("/profile", async (c) => {
     if (!user) return c.redirect("/login"); 
     const premium = isPremium(user); 
     const daysLeft = user.expiryDate ? Math.ceil((new Date(user.expiryDate).getTime() - Date.now()) / 86400000) : 0; 
-    
-    const plans = [
-        { name: "1 Month", price: "700 Ks", days: 30 },
-        { name: "3 Months", price: "1,500 Ks", days: 90, popular: true },
-        { name: "5 Months", price: "2,200 Ks", days: 150 },
-        { name: "1 Year", price: "5,000 Ks", days: 365 }
-    ];
-
+    const plans = [{ name: "1 Month", price: "700 Ks", days: 30 }, { name: "3 Months", price: "1,500 Ks", days: 90, popular: true }, { name: "5 Months", price: "2,200 Ks", days: 150 }, { name: "1 Year", price: "5,000 Ks", days: 365 }];
     return c.html(
         <Layout user={user}>
             <div class="p-4 max-w-4xl mx-auto">
@@ -631,7 +640,6 @@ app.get("/profile", async (c) => {
                         </div>
                     </div>
                 </div>
-
                 <div class="bg-[#1f1f1f] p-6 rounded-xl mb-8 border border-zinc-800">
                     <h3 class="font-bold mb-4 text-gray-300 uppercase text-xs tracking-wider">Activate VIP</h3>
                     <form action="/profile/redeem" method="post" class="flex gap-2">
@@ -639,7 +647,6 @@ app.get("/profile", async (c) => {
                         <button class="btn-primary whitespace-nowrap">Redeem Code</button>
                     </form>
                 </div>
-
                 <h3 class="font-bold mb-4 text-xl text-yellow-500"><i class="fa-solid fa-crown mr-2"></i> Premium Plans</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     {plans.map(p => (
@@ -650,7 +657,6 @@ app.get("/profile", async (c) => {
                         </div>
                     ))}
                 </div>
-
                 <a href="/logout" class="block w-full bg-zinc-900 border border-zinc-700 text-center py-3 rounded-lg text-red-500 font-bold hover:bg-red-900/10 transition">Log Out</a>
             </div>
         </Layout>
@@ -671,7 +677,7 @@ app.post("/profile/redeem", async (c) => {
     return c.redirect("/profile?success=VIP Activated Successfully!"); 
 });
 
-app.get("/logout", (c) => { deleteCookie(c, "user_session"); return c.redirect("/"); });
+app.get("/logout", (c) => { deleteCookie(c, "auth_session"); return c.redirect("/"); });
 
 // =======================
 // 8. ADMIN DASHBOARD
@@ -695,14 +701,7 @@ app.get("/admin", (c) => c.html(
     </Layout>
 ));
 
-app.post("/admin/login", async (c) => { 
-    const { password } = await c.req.parseBody(); 
-    if (password === Deno.env.get("ADMIN_PASSWORD")) { 
-        setCookie(c, "admin_session", String(password), { path: "/" }); 
-        return c.redirect("/admin/dashboard"); 
-    } 
-    return c.redirect("/admin"); 
-});
+app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
 
 app.get("/admin/dashboard", adminAuth, async (c) => {
     const movies = await getMovies();
@@ -735,8 +734,6 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                 </div>
                                 <input name="posterUrl" placeholder="Poster URL (Portrait)" value={editMovie?.posterUrl} required class="input-box" />
                                 <input name="coverUrl" placeholder="Cover URL (Landscape - Slider)" value={editMovie?.coverUrl} required class="input-box border-yellow-500/50" />
-                                
-                                {/* Link Types */}
                                 <div class="p-2 bg-black rounded border border-zinc-800">
                                     <select name="linkType" class="input-box mb-2 text-xs">
                                         <option value="direct" selected={editMovie?.linkType==="direct"}>Direct Link (Auto-Resolve)</option>
@@ -744,16 +741,11 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                     </select>
                                     <input name="streamUrl" placeholder="Movie URL (If Series, leave or put Ep1)" value={editMovie?.streamUrl} class="input-box" />
                                 </div>
-                                
-                                {/* Series Episodes */}
                                 <div class="p-2 bg-black rounded border border-zinc-800">
                                     <label class="text-xs text-yellow-500 mb-1 block">Series Episodes</label>
                                     <textarea name="episodeList" placeholder="S1 Ep1 | https://...&#10;S1 Ep2 | https://..." rows={5} class="input-box font-mono text-xs whitespace-nowrap overflow-x-auto">{epString}</textarea>
                                 </div>
-                                
-                                {/* Download URL (Optional) */}
                                 <input name="downloadUrl" placeholder="Download Link (Optional)" value={editMovie?.downloadUrl} class="input-box text-xs border-green-900/50 focus:border-green-500" />
-                                
                                 <textarea name="description" placeholder="Desc" class="input-box">{editMovie?.description}</textarea>
                                 <button class="btn-primary w-full">{editMovie ? "Update Movie" : "Save Movie"}</button>
                                 {editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel Edit</a>}
@@ -826,11 +818,8 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
     );
 });
 
-// Admin Actions
 app.post("/admin/movie/save", adminAuth, async (c) => {
     const body = await c.req.parseBody();
-    
-    // Parse Episodes
     const epString = body["episodeList"] as string;
     const episodes: Episode[] = [];
     if(epString && epString.trim().length > 0) {
@@ -841,13 +830,7 @@ app.post("/admin/movie/save", adminAuth, async (c) => {
             }
         });
     }
-
-    const movie = { 
-        ...body, 
-        id: body["id"], 
-        createdAt: Number(body["createdAt"]),
-        episodes: episodes 
-    };
+    const movie = { ...body, id: body["id"], createdAt: Number(body["createdAt"]), episodes };
     await kv.set(["movies", movie.id as string], movie);
     return c.redirect("/admin/dashboard");
 });
