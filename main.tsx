@@ -7,20 +7,18 @@ const app = new Hono();
 const kv = await Deno.openKv();
 
 // =======================
-// SECURITY FUNCTIONS
+// SECURITY & UTILS
 // =======================
-
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + "YOUR_SECRET_SALT_2025"); 
+  const data = encoder.encode(password + "GOLD_FLIX_SALT_2025"); 
   const hash = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // =======================
-// 1. TYPE DEFINITIONS
+// 1. DATA TYPES
 // =======================
-
 interface Episode { name: string; url: string; }
 interface Movie {
   id: string; title: string; posterUrl: string; coverUrl: string;
@@ -34,22 +32,13 @@ interface User {
 interface VipKey { code: string; days: number; }
 
 // =======================
-// 2. DATABASE FUNCTIONS
+// 2. DB FUNCTIONS
 // =======================
-
 async function getMovies() {
   const iter = kv.list<Movie>({ prefix: ["movies"] });
   const movies = [];
   for await (const res of iter) movies.push(res.value);
   return movies.sort((a, b) => b.createdAt - a.createdAt);
-}
-async function getPaginatedMovies(category: string, page: number, limit: number) {
-  const allMovies = await getMovies();
-  const filtered = allMovies.filter((m) => m.category === category);
-  const total = filtered.length;
-  const start = (page - 1) * limit;
-  const data = filtered.slice(start, start + limit);
-  return { data, total, totalPages: Math.ceil(total / limit) };
 }
 async function getMovie(id: string) { const res = await kv.get<Movie>(["movies", id]); return res.value; }
 async function getUser(username: string) { const res = await kv.get<User>(["users", username]); return res.value; }
@@ -58,7 +47,6 @@ async function getKeys() { const iter = kv.list<VipKey>({ prefix: ["keys"] }); c
 // =======================
 // 3. MIDDLEWARE
 // =======================
-
 async function getCurrentUser(c: any) {
   const authCookie = getCookie(c, "auth_session");
   if (!authCookie) return null;
@@ -97,9 +85,9 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .input-box:focus { border-color: #E50914; }
         .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; transition: 0.3s; cursor: pointer; }
         .btn-primary:active { transform: scale(0.95); }
-        .custom-scroll::-webkit-scrollbar { width: 6px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #111; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #000; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
         #toast-box { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold; display: flex; items-center; gap: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideIn 0.5s ease; min-width: 250px; }
         .toast.error { background: #E50914; border-left: 5px solid #ff9999; }
@@ -113,6 +101,12 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
         .slide.active { opacity: 1; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* HORIZONTAL SCROLL FIX */
+        .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
+        .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
+        
         video::-internal-media-controls-download-button { display:none; }
         video::-webkit-media-controls-enclosure { overflow:hidden; }
         video::-webkit-media-controls-panel { width: calc(100% + 30px); }
@@ -128,13 +122,76 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Slider
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
-            window.playVideo = function(id) { document.getElementById(id+'-cover').style.display='none'; document.getElementById(id+'-player').style.display='block'; const v=document.querySelector('#'+id+'-player video'); if(v) v.play(); }
-            window.changeEpisode = function(url, type) { const c=document.getElementById('video-player'); if(type==='embed'||url.includes('<iframe')){ c.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; }else{ c.innerHTML='<video controls controlsList="nodownload" oncontextmenu="return false;" autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; } document.getElementById('video-cover').style.display='none'; c.style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); }
+            
+            // DATA SAVER PLAYER
+            window.injectVideo = function(containerId, htmlContent) {
+                const container = document.getElementById(containerId);
+                const cover = document.getElementById(containerId + '-cover');
+                // Inject HTML only when clicked
+                container.innerHTML = htmlContent;
+                container.style.display = 'block';
+                cover.style.display = 'none';
+                
+                // Auto play if it's a video tag
+                const v = container.querySelector('video');
+                if(v) v.play();
+            }
+
+            window.changeEpisode = function(url, type) { 
+                const c = document.getElementById('video-player'); 
+                // Only load when clicked
+                if(type==='embed'||url.includes('<iframe')){ c.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; }
+                else{ c.innerHTML='<video controls controlsList="nodownload" oncontextmenu="return false;" autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; } 
+                document.getElementById('video-cover').style.display='none'; 
+                c.style.display='block'; 
+                window.scrollTo({top:0,behavior:'smooth'}); 
+            }
+            
             window.filterMovies = function(val) { document.querySelectorAll('.movie-item').forEach(i => i.style.display=i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase())?'flex':'none'); }
         });
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
+        
+        // INFINITE SCROLL LOGIC
+        let page = 1;
+        let isLoading = false;
+        let hasMore = true;
+        async function loadMoreMovies(category) {
+            if(isLoading || !hasMore) return;
+            isLoading = true;
+            document.getElementById('loading-indicator').style.display = 'block';
+            page++;
+            try {
+                const res = await fetch('/api/list?cat=' + category + '&page=' + page);
+                const data = await res.json();
+                if(data.movies.length === 0) {
+                    hasMore = false;
+                    document.getElementById('loading-indicator').style.display = 'none';
+                    return;
+                }
+                const container = document.getElementById('movie-grid');
+                data.movies.forEach(m => {
+                    const el = document.createElement('a');
+                    el.href = '/movie/' + m.id;
+                    el.className = 'block bg-[#1f1f1f] rounded overflow-hidden';
+                    el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>';
+                    container.appendChild(el);
+                });
+            } catch(e) { console.error(e); }
+            isLoading = false;
+            document.getElementById('loading-indicator').style.display = 'none';
+        }
+        
+        // Listen for scroll
+        window.addEventListener('scroll', () => {
+            if(window.location.pathname.startsWith('/category/') && (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500) {
+                const cat = window.location.pathname.split('/').pop();
+                loadMoreMovies(cat);
+            }
+        });
       `}} />
     </head>
     <body><div id="page-loader"><div class="spinner"></div></div><div id="toast-box"></div>{!props.hideNav&&(<nav class="sticky top-0 z-40 bg-black/95 border-b border-white/10 px-4 py-3 shadow-lg"><div class="max-w-7xl mx-auto flex justify-between items-center"><a href="/" class="text-xl font-black text-red-600 tracking-tighter italic">GOLD FLIX</a><div class="flex gap-4 text-xs font-bold text-gray-400"><a href="/" class="hover:text-white">Home</a><a href="/favorites" class="hover:text-red-500">Saved</a><a href="/category/Movies" class="hover:text-white">Movies</a><a href="/category/Series" class="hover:text-white">Series</a>{props.user?<a href="/profile" class="text-white">Me</a>:<a href="/login">Login</a>}</div></div></nav>)}<main class="flex-grow w-full pb-10">{props.children}</main></body>
@@ -145,11 +202,13 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 // 5. PUBLIC ROUTES
 // =======================
 
+// Home Page (Horizontal Scroll Updated)
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
   const sliderMovies = allMovies.filter(m => m.coverUrl && m.coverUrl.length > 5).slice(0, 5);
   const sections = ["Movies", "Series", "Adult"];
+  
   return c.html(
     <Layout user={user}>
         <div class="p-3 bg-black sticky top-[50px] z-30 shadow-md">
@@ -158,41 +217,112 @@ app.get("/", async (c) => {
                  <input name="q" placeholder="Search movies..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none" />
              </form>
         </div>
-      {sliderMovies.length > 0 && (<div class="slider-container">{sliderMovies.map((m, idx) => (<div class={`slide ${idx === 0 ? 'active' : ''}`}><img src={m.coverUrl} /><div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div><div class="absolute bottom-4 left-4 right-4"><span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span><h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1><a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a></div></div>))}</div>)}
-      <div class="px-3 py-6 space-y-8">{sections.map(cat => { const catMovies = allMovies.filter(m => m.category === cat).slice(0, 6); if (catMovies.length === 0) return null; return (<div><div class="flex justify-between items-end mb-3 px-1"><h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2><a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">More <i class="fa-solid fa-chevron-right text-[10px]"></i></a></div><div class="grid grid-cols-3 gap-2">{catMovies.map(m => (<a href={`/movie/${m.id}`} class="block relative rounded bg-[#1f1f1f] overflow-hidden active:scale-95 transition-transform"><div class="aspect-[2/3] w-full"><img src={m.posterUrl} class="w-full h-full object-cover" /></div><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3></div></a>))}</div></div>)})}</div>
+
+      {sliderMovies.length > 0 && (
+        <div class="slider-container">
+             {sliderMovies.map((m, idx) => (
+                 <div class={`slide ${idx === 0 ? 'active' : ''}`}>
+                     <img src={m.coverUrl} />
+                     <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div>
+                     <div class="absolute bottom-4 left-4 right-4">
+                         <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
+                         <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
+                         <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm">
+                            <i class="fa-solid fa-play"></i> Play
+                         </a>
+                     </div>
+                 </div>
+             ))}
+        </div>
+      )}
+
+      <div class="px-3 py-6 space-y-8">
+        {sections.map(cat => {
+            const catMovies = allMovies.filter(m => m.category === cat).slice(0, 8); // Show 8 items
+            if (catMovies.length === 0) return null;
+            return (
+                <div>
+                    <div class="flex justify-between items-end mb-3 px-1">
+                        <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2>
+                        <a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
+                    </div>
+                    {/* Horizontal Scroll Container */}
+                    <div class="h-scroll-section custom-scroll">
+                        {catMovies.map(m => (
+                            <a href={`/movie/${m.id}`} class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden active:scale-95 transition-transform">
+                                <img src={m.posterUrl} />
+                                <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3></div>
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )
+        })}
+      </div>
     </Layout>
   );
 });
 
-// FIXED SEARCH: Prevent crash on null fields
+// JSON API for Infinite Scroll
+app.get("/api/list", async (c) => {
+    const cat = c.req.query("cat") || "Movies";
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = 15;
+    
+    const allMovies = await getMovies();
+    const filtered = allMovies.filter((m) => m.category === cat);
+    
+    const start = (page - 1) * limit;
+    const movies = filtered.slice(start, start + limit).map(m => ({
+        id: m.id, title: m.title, posterUrl: m.posterUrl
+    }));
+    
+    return c.json({ movies });
+});
+
+// Category Page (Infinite Scroll)
+app.get("/category/:cat", async (c) => {
+    const user = await getCurrentUser(c);
+    const cat = c.req.param("cat");
+    
+    // Initial Load (First 15)
+    const allMovies = await getMovies();
+    const filtered = allMovies.filter((m) => m.category === cat);
+    const initialMovies = filtered.slice(0, 15);
+
+    return c.html(
+        <Layout user={user}>
+            <div class="px-3 py-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h1 class="text-xl font-bold text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1>
+                    <span class="bg-red-600 text-[10px] px-2 py-1 rounded text-white font-bold tracking-wider">{filtered.length} ITEMS</span>
+                </div>
+                
+                <div id="movie-grid" class="grid grid-cols-3 gap-2">
+                    {initialMovies.map(m => (
+                         <a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden">
+                            <img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" />
+                            <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div>
+                         </a>
+                    ))}
+                </div>
+                
+                {/* Loading Indicator */}
+                <div id="loading-indicator" class="text-center py-4 hidden">
+                    <i class="fa-solid fa-circle-notch fa-spin text-red-600 text-xl"></i>
+                </div>
+            </div>
+        </Layout>
+    );
+});
+
+// Search
 app.get("/search", async (c) => {
     const user = await getCurrentUser(c);
     const query = c.req.query("q")?.toLowerCase() || "";
     const allMovies = await getMovies();
-    // Safety check: title and tags might be undefined on old data
-    const results = allMovies.filter(m => 
-        (m.title && m.title.toLowerCase().includes(query)) || 
-        (m.tags && m.tags.toLowerCase().includes(query))
-    );
+    const results = allMovies.filter(m => (m.title && m.title.toLowerCase().includes(query)) || (m.tags && m.tags.toLowerCase().includes(query)));
     return c.html(<Layout user={user}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>);
-});
-
-// UPDATED CATEGORY: Added Count Display
-app.get("/category/:cat", async (c) => {
-    const user = await getCurrentUser(c);
-    const cat = c.req.param("cat");
-    const page = parseInt(c.req.query("page") || "1");
-    const { data, total, totalPages } = await getPaginatedMovies(cat, page, 15);
-    return c.html(<Layout user={user}>
-        <div class="px-3 py-6">
-            <div class="flex justify-between items-center mb-4">
-                <h1 class="text-xl font-bold text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1>
-                <span class="bg-red-600 text-[10px] px-2 py-1 rounded text-white font-bold tracking-wider">{total} ITEMS</span>
-            </div>
-            <div class="grid grid-cols-3 gap-2">{data.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>
-            <div class="flex justify-center gap-4 mt-8 text-sm font-bold">{page > 1 && <a href={`/category/${cat}?page=${page - 1}`} class="px-4 py-2 bg-gray-800 rounded">Prev</a>}<span class="py-2 px-4 text-gray-400">{page} / {totalPages || 1}</span>{page < totalPages && <a href={`/category/${cat}?page=${page + 1}`} class="px-4 py-2 bg-red-600 rounded">Next</a>}</div>
-        </div>
-    </Layout>);
 });
 
 app.get("/favorites", async (c) => {
@@ -216,7 +346,7 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & DOWNLOAD LOGIC
+// 6. STREAM & DOWNLOAD LOGIC (Data Saver)
 // =======================
 
 app.get("/stream/:token", async (c) => {
@@ -247,18 +377,20 @@ app.get("/movie/:id", async (c) => {
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
 
-    let playerUrl = "";
+    // PREPARE HTML STRING FOR JS INJECTION (Data Saver)
+    let videoHtml = "";
     let secureDownloadUrl = "";
 
     if (premium) {
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
-            playerUrl = initialStreamUrl;
+            videoHtml = initialStreamUrl.includes("<iframe") ? initialStreamUrl : `<iframe src="${initialStreamUrl}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`;
         } else {
             let realUrl = initialStreamUrl;
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
-            playerUrl = `/stream/${token}`;
+            // MP4 Tag String
+            videoHtml = `<video controls class="w-full h-full" autoplay><source src="/stream/${token}" type="video/mp4"></video>`;
         }
 
         if (movie.downloadUrl) {
@@ -271,10 +403,11 @@ app.get("/movie/:id", async (c) => {
     return c.html(
       <Layout user={user} title={movie.title}>
         <div class="max-w-4xl mx-auto">
+           {/* VIDEO CONTAINER - INITIALLY EMPTY FOR DATA SAVER */}
            <div class="w-full aspect-video bg-black relative shadow-lg">
               {premium ? (
                   <>
-                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer group" onclick="playVideo('video')">
+                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer group" onclick={`injectVideo('video-player', \`${videoHtml.replace(/`/g, '\\`')}\`)`}>
                         <img src={displayImage} class="w-full h-full object-cover" />
                         <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
                             <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(229,9,20,0.6)] group-hover:scale-110 transition-transform">
@@ -282,16 +415,8 @@ app.get("/movie/:id", async (c) => {
                             </div>
                         </div>
                     </div>
-                    <div id="video-player" class="w-full h-full hidden">
-                        {movie.linkType === "embed" || playerUrl.includes("<iframe") ? (
-                             <div dangerouslySetInnerHTML={{__html: playerUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
-                        ) : (
-                             // ALLOW NATIVE DOWNLOAD & MENU
-                             <video controls class="w-full h-full" poster={displayImage}>
-                                 <source src={playerUrl} type="video/mp4" />
-                             </video>
-                        )}
-                    </div>
+                    {/* Empty Div - Filled by JS on Click */}
+                    <div id="video-player" class="w-full h-full hidden"></div>
                   </>
               ) : (
                   <div class="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 z-30">
@@ -354,9 +479,7 @@ app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen 
 app.post("/login", async (c) => { 
     const body = await c.req.parseBody();
     const user = await getUser(body["username"] as string);
-    // Hashed Password Check
     const hashedInput = await hashPassword(body["password"] as string);
-    
     if (user && user.passwordHash === hashedInput) { 
         const sessionId = crypto.randomUUID();
         user.sessionId = sessionId;
