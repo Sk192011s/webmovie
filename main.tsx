@@ -9,8 +9,8 @@ const kv = await Deno.openKv();
 interface Movie {
   id: string;
   title: string;
-  posterUrl: string; // Portrait (2:3)
-  coverUrl: string;  // Landscape (16:9) - New!
+  posterUrl: string;
+  coverUrl: string;
   category: "Movies" | "Series" | "Adult";
   description: string;
   tags: string;
@@ -79,6 +79,7 @@ function isPremium(user: User | null) {
   return new Date(user.expiryDate) > new Date();
 }
 
+// Link Resolving (Now purely internal)
 async function resolveRedirect(url: string) {
   try {
     const res = await fetch(url, { method: "HEAD", redirect: "follow" });
@@ -98,29 +99,39 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
       <style>{`
-        body { background-color: #000; color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; user-select: none; }
+        body { background-color: #000; color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        /* FIX: Allow selection on inputs only */
+        * { user-select: none; -webkit-user-select: none; }
+        input, textarea { user-select: text !important; -webkit-user-select: text !important; }
+        
+        /* Protect Images */
+        img { pointer-events: none; -webkit-touch-callout: none; }
+
         .glass { background: #1a1a1a; border: 1px solid #333; }
         .input-box { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 4px; width: 100%; outline: none; }
         .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; }
         
-        /* Loader */
         #page-loader { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; transition: opacity 0.3s; pointer-events: none; opacity: 0; }
         #page-loader.active { pointer-events: all; opacity: 1; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Slider Styles */
         .slider-container { position: relative; width: 100%; height: 50vh; overflow: hidden; }
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
         .slide.active { opacity: 1; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
-
-        img { pointer-events: none; }
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
-            // Loader
             const loader = document.getElementById('page-loader');
+            // Disable Right Click Globally except inputs
+            document.addEventListener('contextmenu', event => {
+                if (event.target.nodeName !== 'INPUT' && event.target.nodeName !== 'TEXTAREA') {
+                    event.preventDefault();
+                }
+            });
+
             document.querySelectorAll('a').forEach(link => {
                 link.addEventListener('click', (e) => {
                     const href = link.getAttribute('href');
@@ -130,7 +141,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             document.querySelectorAll('form').forEach(form => form.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
 
-            // Slider Logic
             const slides = document.querySelectorAll('.slide');
             if(slides.length > 1) {
                 let currentSlide = 0;
@@ -138,16 +148,17 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     slides[currentSlide].classList.remove('active');
                     currentSlide = (currentSlide + 1) % slides.length;
                     slides[currentSlide].classList.add('active');
-                }, 4000); // 4 Seconds
+                }, 4000);
             }
 
-            // Click to Play
             window.playVideo = function(id) {
                 document.getElementById(id + '-cover').style.display = 'none';
                 document.getElementById(id + '-player').style.display = 'block';
+                // Auto play if possible
+                const v = document.querySelector('#' + id + '-player video');
+                if(v) v.play();
             }
 
-            // Admin Search
             window.filterMovies = function(val) {
                 const items = document.querySelectorAll('.movie-item');
                 items.forEach(item => {
@@ -158,7 +169,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         });
       `}} />
     </head>
-    <body oncontextmenu="return false;">
+    <body>
       <div id="page-loader"><div class="spinner"></div></div>
 
       {!props.hideNav && (
@@ -185,26 +196,22 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 
 // --- ROUTES ---
 
-// 1. Home Page (Slider + Search + Sections)
+// 1. Home Page
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
-  
-  // Slider: Get 5 latest movies with coverUrl
   const sliderMovies = allMovies.filter(m => m.coverUrl && m.coverUrl.length > 5).slice(0, 5);
   const sections = ["Movies", "Series", "Adult"];
   
   return c.html(
     <Layout user={user}>
-        {/* Search Bar */}
-        <div class="p-3 bg-black">
+        <div class="p-3 bg-black sticky top-[50px] z-30 shadow-md">
              <form action="/search" method="get" class="relative">
                  <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-500"></i>
-                 <input name="q" placeholder="Search movies..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none transition" />
+                 <input name="q" placeholder="Search movies..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none" />
              </form>
         </div>
 
-      {/* Hero Slider */}
       {sliderMovies.length > 0 && (
         <div class="slider-container">
              {sliderMovies.map((m, idx) => (
@@ -215,7 +222,7 @@ app.get("/", async (c) => {
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-2xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm">
-                            <i class="fa-solid fa-play"></i> Play Now
+                            <i class="fa-solid fa-play"></i> Play
                          </a>
                      </div>
                  </div>
@@ -223,7 +230,6 @@ app.get("/", async (c) => {
         </div>
       )}
 
-      {/* Sections */}
       <div class="px-3 py-6 space-y-8">
         {sections.map(cat => {
             const catMovies = allMovies.filter(m => m.category === cat).slice(0, 6);
@@ -237,12 +243,8 @@ app.get("/", async (c) => {
                     <div class="grid grid-cols-3 gap-2">
                         {catMovies.map(m => (
                             <a href={`/movie/${m.id}`} class="block relative rounded bg-[#1f1f1f] overflow-hidden active:scale-95 transition-transform">
-                                <div class="aspect-[2/3] w-full">
-                                    <img src={m.posterUrl} class="w-full h-full object-cover" />
-                                </div>
-                                <div class="p-1.5">
-                                    <h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3>
-                                </div>
+                                <div class="aspect-[2/3] w-full"><img src={m.posterUrl} class="w-full h-full object-cover" /></div>
+                                <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3></div>
                             </a>
                         ))}
                     </div>
@@ -275,9 +277,7 @@ app.get("/search", async (c) => {
                     {results.map(m => (
                          <a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden">
                             <img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" />
-                            <div class="p-1.5">
-                                <h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3>
-                            </div>
+                            <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div>
                          </a>
                     ))}
                 </div>
@@ -315,7 +315,21 @@ app.get("/category/:cat", async (c) => {
     );
 });
 
-// Movie Detail (Updated to use Cover Photo)
+// *** SECURE STREAM ROUTE (TOKEN SYSTEM) ***
+app.get("/stream/:token", async (c) => {
+    const token = c.req.param("token");
+    // Get the real URL from KV using the token
+    const entry = await kv.get(["stream_tokens", token]);
+    
+    if (!entry.value) {
+        return c.text("Link Expired or Invalid", 403);
+    }
+
+    // Redirect to real URL (This masks the URL in the HTML source code)
+    return c.redirect(entry.value as string);
+});
+
+// Movie Detail
 app.get("/movie/:id", async (c) => {
     const id = c.req.param("id");
     const movie = await getMovie(id);
@@ -323,23 +337,38 @@ app.get("/movie/:id", async (c) => {
     if (!movie) return c.text("Not Found", 404);
   
     const premium = isPremium(user);
-    // Use Cover for video player, fallback to poster if cover missing
     const displayImage = movie.coverUrl || movie.posterUrl; 
 
-    let finalStreamUrl = movie.streamUrl;
-    if (premium && movie.linkType === "direct" && !movie.streamUrl.includes("iframe")) {
-        finalStreamUrl = await resolveRedirect(movie.streamUrl);
+    let playerUrl = "";
+    
+    // Only generate token if user is premium
+    if (premium) {
+        if (movie.linkType === "embed" || movie.streamUrl.includes("<iframe")) {
+            // Embed codes are just HTML
+            playerUrl = movie.streamUrl;
+        } else {
+            // DIRECT LINK: Generate a secure temporary token
+            let realUrl = movie.streamUrl;
+            if (movie.linkType === "direct") {
+                realUrl = await resolveRedirect(movie.streamUrl);
+            }
+            
+            // Create Token (Lasts 3 Hours)
+            const token = crypto.randomUUID();
+            await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
+            
+            // Set the player source to the local /stream/token path
+            playerUrl = `/stream/${token}`;
+        }
     }
   
     return c.html(
       <Layout user={user} title={movie.title}>
         <div class="max-w-4xl mx-auto">
-           {/* Video Section */}
            <div class="w-full aspect-video bg-black relative shadow-lg">
               {premium ? (
                   <>
                     <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer group" onclick="playVideo('video')">
-                        {/* Display Cover Image here */}
                         <img src={displayImage} class="w-full h-full object-cover" />
                         <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
                             <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(229,9,20,0.6)] group-hover:scale-110 transition-transform">
@@ -349,10 +378,10 @@ app.get("/movie/:id", async (c) => {
                     </div>
                     <div id="video-player" class="w-full h-full hidden">
                         {movie.linkType === "embed" || movie.streamUrl.includes("<iframe") ? (
-                             <div dangerouslySetInnerHTML={{__html: movie.streamUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
+                             <div dangerouslySetInnerHTML={{__html: playerUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
                         ) : (
-                             <video controls class="w-full h-full" autoplay poster={displayImage}>
-                                 <source src={finalStreamUrl} type="video/mp4" />
+                             <video controls controlsList="nodownload" class="w-full h-full" poster={displayImage}>
+                                 <source src={playerUrl} type="video/mp4" />
                              </video>
                         )}
                     </div>
@@ -385,7 +414,7 @@ app.get("/movie/:id", async (c) => {
     );
 });
 
-// Auth & Profile Routes (Same as before)
+// Auth & Profile Routes
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
 app.post("/login", async (c) => { const { username, password } = await c.req.parseBody(); const user = await getUser(username as string); if (user && user.password === password) { setCookie(c, "user_session", String(username), { path: "/", maxAge: 86400 * 30 }); return c.redirect("/profile"); } return c.text("Invalid", 401); });
 app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4"><h2 class="text-xl font-bold text-white mb-2">Create Account</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Sign Up</button><p class="text-xs text-gray-500 text-center mt-4">Has account? <a href="/login" class="text-white font-bold">Login</a></p></form></div></div></Layout>));
@@ -420,7 +449,6 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
 
                 <div class="grid lg:grid-cols-2 gap-6">
                     <div class="space-y-6">
-                        {/* Add/Edit Movie Form */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4">
                             <h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2>
                             <form action="/admin/movie/save" method="post" class="space-y-2 text-sm">
@@ -447,14 +475,12 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                 {editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel Edit</a>}
                             </form>
                         </div>
-                        {/* Key Gen */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700">
                             <h2 class="font-bold mb-3 text-sm">VIP Keys</h2>
                             <form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form>
                             <div class="mt-2 max-h-32 overflow-y-auto">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div>
                         </div>
                     </div>
-                    {/* Movie List with Search & Edit */}
                     <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 h-fit">
                         <div class="flex justify-between items-center mb-3">
                              <h2 class="font-bold text-sm">Library ({movies.length})</h2>
@@ -484,11 +510,7 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
 
 app.post("/admin/movie/save", adminAuth, async (c) => {
     const body = await c.req.parseBody();
-    const movie = { 
-        ...body, 
-        id: body["id"], 
-        createdAt: Number(body["createdAt"]) 
-    };
+    const movie = { ...body, id: body["id"], createdAt: Number(body["createdAt"]) };
     await kv.set(["movies", movie.id as string], movie);
     return c.redirect("/admin/dashboard");
 });
