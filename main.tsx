@@ -130,6 +130,12 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; transition: 0.3s; cursor: pointer; }
         .btn-primary:active { transform: scale(0.95); }
         
+        /* Custom Scrollbar for Admin */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #111; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #555; }
+
         /* Toast Notification */
         #toast-box { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold; display: flex; items-center; gap: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideIn 0.5s ease; min-width: 250px; }
@@ -153,21 +159,18 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         document.addEventListener('DOMContentLoaded', () => {
             const loader = document.getElementById('page-loader');
             
-            // Disable Right Click (except inputs)
             document.addEventListener('contextmenu', e => { 
                 if(e.target.nodeName!=='INPUT' && e.target.nodeName!=='TEXTAREA') {
                     e.preventDefault(); 
                 }
             });
             
-            // Loader Logic
             document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { 
                 if(l.getAttribute('href')?.startsWith('/') && !l.getAttribute('href').includes('logout') && !l.getAttribute('href').includes('#')) loader.classList.add('active'); 
             }));
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
 
-            // Toast Logic
             const urlParams = new URLSearchParams(window.location.search);
             const error = urlParams.get('error');
             const success = urlParams.get('success');
@@ -175,7 +178,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             if(success) showToast(success, 'success');
             if(error || success) window.history.replaceState({}, document.title, window.location.pathname);
 
-            // Slider Logic
             const slides = document.querySelectorAll('.slide');
             if(slides.length > 1) {
                 let current = 0;
@@ -186,7 +188,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }, 4000);
             }
 
-            // Video Player
             window.playVideo = function(id) {
                 document.getElementById(id + '-cover').style.display = 'none';
                 document.getElementById(id + '-player').style.display = 'block';
@@ -194,7 +195,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 if(v) v.play();
             }
 
-            // Series Episode Changer
             window.changeEpisode = function(url, type) {
                 const container = document.getElementById('video-player');
                 if(type === 'embed' || url.includes('<iframe')) {
@@ -207,7 +207,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 window.scrollTo({top:0, behavior:'smooth'});
             }
 
-            // Admin Filter
             window.filterMovies = function(val) {
                 document.querySelectorAll('.movie-item').forEach(i => i.style.display = i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase()) ? 'flex' : 'none');
             }
@@ -256,7 +255,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 // 5. PUBLIC ROUTES
 // =======================
 
-// Home Page
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
@@ -316,7 +314,6 @@ app.get("/", async (c) => {
   );
 });
 
-// Search
 app.get("/search", async (c) => {
     const user = await getCurrentUser(c);
     const query = c.req.query("q")?.toLowerCase() || "";
@@ -346,7 +343,6 @@ app.get("/search", async (c) => {
     );
 });
 
-// Category Pagination
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -375,7 +371,6 @@ app.get("/category/:cat", async (c) => {
     );
 });
 
-// Favorites
 app.get("/favorites", async (c) => {
     const user = await getCurrentUser(c);
     if(!user) return c.redirect("/login");
@@ -415,23 +410,31 @@ app.post("/api/fav", async (c) => {
 // 6. STREAM & TOKEN LOGIC
 // =======================
 
-// Secure Stream Redirect
+// Secure Stream Redirect (With Referer Check)
 app.get("/stream/:token", async (c) => {
     const token = c.req.param("token");
     const entry = await kv.get(["stream_tokens", token]);
+    
+    // Security: Check Referer (Simple Block)
+    const referer = c.req.header("Referer");
+    const origin = new URL(c.req.url).origin;
+    
     if (!entry.value) return c.text("Link Expired or Invalid", 403);
+    
+    // Optional: Uncomment to enforce streaming ONLY from your site
+    // if (referer && !referer.startsWith(origin)) return c.text("Access Denied: Direct Access Not Allowed", 403);
+
     return c.redirect(entry.value as string);
 });
 
-// Secure Download Redirect
 app.get("/dl/:token", async (c) => {
     const token = c.req.param("token");
-    const entry = await kv.get(["stream_tokens", token]); // Reusing stream_tokens map for simplicity
+    const entry = await kv.get(["stream_tokens", token]);
     if (!entry.value) return c.text("Download Link Expired", 403);
     return c.redirect(entry.value as string);
 });
 
-// Movie Detail & Player
+// Movie Detail
 app.get("/movie/:id", async (c) => {
     const id = c.req.param("id");
     const movie = await getMovie(id);
@@ -442,31 +445,27 @@ app.get("/movie/:id", async (c) => {
     const isFav = user?.favorites?.includes(id);
     const displayImage = movie.coverUrl || movie.posterUrl; 
 
-    // Handle Series
     let initialStreamUrl = movie.streamUrl;
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
 
-    // Generate Secure Links (Stream & Download)
     let playerUrl = "";
     let secureDownloadUrl = "";
 
     if (premium) {
-        // Stream URL Logic
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
             playerUrl = initialStreamUrl;
         } else {
             let realUrl = initialStreamUrl;
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
-            await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); // 3 Hours
+            await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 });
             playerUrl = `/stream/${token}`;
         }
 
-        // Download URL Logic
         if (movie.downloadUrl) {
              const dlToken = crypto.randomUUID();
-             await kv.set(["stream_tokens", dlToken], movie.downloadUrl, { expireIn: 3600 * 3 }); // 3 Hours
+             await kv.set(["stream_tokens", dlToken], movie.downloadUrl, { expireIn: 3600 * 3 });
              secureDownloadUrl = `/dl/${dlToken}`;
         }
     }
@@ -474,7 +473,6 @@ app.get("/movie/:id", async (c) => {
     return c.html(
       <Layout user={user} title={movie.title}>
         <div class="max-w-4xl mx-auto">
-           {/* Video Player */}
            <div class="w-full aspect-video bg-black relative shadow-lg">
               {premium ? (
                   <>
@@ -508,7 +506,6 @@ app.get("/movie/:id", async (c) => {
               )}
            </div>
            
-           {/* Info Section */}
            <div class="p-4">
                <div class="flex justify-between items-start mb-2">
                    <h1 class="text-2xl font-bold text-white">{movie.title}</h1>
@@ -525,7 +522,6 @@ app.get("/movie/:id", async (c) => {
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
 
-               {/* Series Episode Buttons */}
                {movie.category === "Series" && episodes.length > 0 && premium && (
                    <div class="mb-6">
                        <h3 class="font-bold text-gray-300 mb-2">Episodes</h3>
@@ -538,8 +534,6 @@ app.get("/movie/:id", async (c) => {
                )}
 
                <p class="text-sm text-gray-300 leading-relaxed mb-6">{movie.description}</p>
-               
-               {/* Secure Download Button */}
                {premium && secureDownloadUrl && (
                    <a href={secureDownloadUrl} target="_blank" class="block w-full text-center bg-zinc-800 hover:bg-red-600 py-3 rounded-lg text-white font-bold text-sm transition-colors mb-8 border border-zinc-700">
                        <i class="fa-solid fa-download mr-2"></i> Download This Movie / Series
@@ -617,7 +611,6 @@ app.get("/profile", async (c) => {
     const premium = isPremium(user); 
     const daysLeft = user.expiryDate ? Math.ceil((new Date(user.expiryDate).getTime() - Date.now()) / 86400000) : 0; 
     
-    // Pricing Config
     const plans = [
         { name: "1 Month", price: "700 Ks", days: 30 },
         { name: "3 Months", price: "1,500 Ks", days: 90, popular: true },
@@ -628,7 +621,6 @@ app.get("/profile", async (c) => {
     return c.html(
         <Layout user={user}>
             <div class="p-4 max-w-4xl mx-auto">
-                {/* User Info Card */}
                 <div class="bg-[#1f1f1f] p-6 rounded-xl flex items-center gap-6 mb-8 border border-zinc-800 shadow-lg">
                     <div class="w-20 h-20 bg-gradient-to-br from-red-600 to-red-800 rounded-full flex items-center justify-center text-3xl font-bold shadow-lg shadow-red-900/50">{user.username[0].toUpperCase()}</div>
                     <div>
@@ -640,7 +632,6 @@ app.get("/profile", async (c) => {
                     </div>
                 </div>
 
-                {/* Redeem Form */}
                 <div class="bg-[#1f1f1f] p-6 rounded-xl mb-8 border border-zinc-800">
                     <h3 class="font-bold mb-4 text-gray-300 uppercase text-xs tracking-wider">Activate VIP</h3>
                     <form action="/profile/redeem" method="post" class="flex gap-2">
@@ -649,7 +640,6 @@ app.get("/profile", async (c) => {
                     </form>
                 </div>
 
-                {/* Pricing Plans */}
                 <h3 class="font-bold mb-4 text-xl text-yellow-500"><i class="fa-solid fa-crown mr-2"></i> Premium Plans</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     {plans.map(p => (
@@ -780,7 +770,7 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                                 <input type="number" name="days" placeholder="Days" required class="input-box" />
                                 <button class="btn-primary">Gen</button>
                             </form>
-                            <div class="mt-2 max-h-32 overflow-y-auto">
+                            <div class="mt-2 max-h-32 overflow-y-auto custom-scroll">
                                 {keys.map(k => (
                                     <div class="flex justify-between text-xs p-2 border-b border-zinc-800">
                                         <span class="text-yellow-500 font-mono">{k.code}</span>
@@ -805,13 +795,13 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
                             </form>
                         </div>
 
-                        {/* MOVIE LIST */}
-                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 h-fit">
+                        {/* MOVIE LIST (FIXED SCROLL) */}
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 flex flex-col h-[600px]">
                             <div class="flex justify-between items-center mb-3">
                                 <h2 class="font-bold text-sm">Library ({movies.length})</h2>
                                 <input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" />
                             </div>
-                            <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
+                            <div class="space-y-2 flex-1 overflow-y-auto pr-2 custom-scroll">
                                 {movies.map(m => (
                                     <div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}>
                                         <img src={m.posterUrl} class="w-10 h-14 object-cover" />
