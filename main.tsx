@@ -111,43 +111,29 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         
         .video-loader { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: #000; z-index: 20; }
         .video-loader .spinner { border-color: #333; border-top-color: #E50914; }
-        
-        video::-internal-media-controls-download-button { display:none; }
-        video::-webkit-media-controls-enclosure { overflow:hidden; }
-        video::-webkit-media-controls-panel { width: calc(100% + 30px); }
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             const loader = document.getElementById('page-loader');
             document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
-            
-            // LINK LOADER FIX: Ignore targets _blank (downloads)
-            document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { 
-                const href=l.getAttribute('href'); 
-                const target=l.getAttribute('target');
-                if(href && href.startsWith('/') && !href.includes('logout') && !href.includes('#') && target !== '_blank') {
-                    loader.classList.add('active'); 
-                }
-            }));
-            
+            document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { const href=l.getAttribute('href'); if(href&&href.startsWith('/')&&!href.includes('logout')&&!href.includes('#')) loader.classList.add('active'); }));
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
-            
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
             
+            // Slider
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
             
             // --- VIDEO PLAYER LOGIC ---
-            window.injectVideo = function(htmlContent) {
-                const container = document.getElementById('video-player');
-                const cover = document.getElementById('video-cover');
-                const loader = document.getElementById('video-player-loader');
+            window.injectVideo = function(containerId, htmlContent) {
+                const container = document.getElementById(containerId);
+                const cover = document.getElementById(containerId + '-cover');
+                const loader = document.getElementById(containerId + '-loader');
                 
-                // Show local loader, hide cover
                 cover.style.display = 'none';
                 loader.style.display = 'flex';
                 
@@ -161,7 +147,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     video.addEventListener('playing', () => loader.style.display = 'none');
                     video.play().catch(e => console.log("Autoplay prevented"));
                 } else {
-                    // If iframe, hide loader after delay
                     setTimeout(() => loader.style.display = 'none', 1500);
                 }
             }
@@ -174,11 +159,12 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 cover.style.display = 'none';
                 loader.style.display = 'flex'; 
                 
+                // Allow Download: removed controlsList="nodownload" and oncontextmenu="return false"
                 if(type==='embed'||url.includes('<iframe')){ 
                     container.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; 
                     setTimeout(() => loader.style.display = 'none', 1500);
                 } else { 
-                    container.innerHTML='<video controls controlsList="nodownload" oncontextmenu="return false;" autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; 
+                    container.innerHTML='<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; 
                     const video = container.querySelector('video');
                     video.addEventListener('loadeddata', () => loader.style.display = 'none');
                     video.addEventListener('waiting', () => loader.style.display = 'flex');
@@ -193,7 +179,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
         
-        // Infinite Scroll
         let page = 1; let isLoading = false; let hasMore = true;
         async function loadMoreMovies(category) {
             if(isLoading || !hasMore) return;
@@ -223,6 +208,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 // 5. PUBLIC ROUTES
 // =======================
 
+// Home Page (Horizontal Scroll)
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
@@ -293,7 +279,7 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & DOWNLOAD
+// 6. STREAM & DOWNLOAD LOGIC
 // =======================
 
 app.get("/stream/:token", async (c) => {
@@ -335,8 +321,8 @@ app.get("/movie/:id", async (c) => {
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
-            // PRELOAD METADATA + SPINNER
-            videoHtml = `<video controls controlsList="nodownload" oncontextmenu="return false;" class="w-full h-full" autoplay preload="metadata"><source src="/stream/${token}" type="video/mp4"></video>`;
+            // ENABLE DOWNLOAD: controlsList and oncontextmenu removed!
+            videoHtml = `<video controls class="w-full h-full" autoplay preload="metadata"><source src="/stream/${token}" type="video/mp4"></video>`;
         }
 
         if (movie.downloadUrl) {
@@ -353,18 +339,14 @@ app.get("/movie/:id", async (c) => {
            <div class="w-full aspect-video bg-black relative shadow-lg group">
               {premium ? (
                   <>
-                    {/* COVER */}
                     <div id="video-cover" class="absolute inset-0 z-20">
                         <img src={displayImage} class="w-full h-full object-cover opacity-50" />
-                        <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
-                            {/* NOTE: We removed the play icon click here because we added a button below */}
-                        </div>
                     </div>
-                    {/* LOADING SPINNER */}
+                    {/* LOADING SPINNER FOR VIDEO */}
                     <div id="video-player-loader" class="video-loader">
                         <div class="spinner"></div>
                     </div>
-                    {/* PLAYER */}
+                    {/* VIDEO PLAYER */}
                     <div id="video-player" class="w-full h-full hidden"></div>
                   </>
               ) : (
@@ -395,12 +377,11 @@ app.get("/movie/:id", async (c) => {
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
 
-               {/* ACTION BUTTONS (PLAY / DOWNLOAD) */}
+               {/* ACTION BUTTONS */}
                {premium && (
                    <div class="flex gap-3 mb-6">
-                        {/* Hide Play button if it's a series to avoid confusion */}
                         {movie.category !== "Series" && (
-                            <button onclick={`injectVideo(\`${videoHtml.replace(/`/g, '\\`')}\`)`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
+                            <button onclick={`injectVideo('video-player', \`${videoHtml.replace(/`/g, '\\`')}\`)`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
                                 <i class="fa-solid fa-play"></i> Play Movie
                             </button>
                         )}
