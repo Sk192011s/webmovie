@@ -15,9 +15,9 @@ interface Movie {
   tags: string;
   year: string;
   streamUrl: string;
-  linkType: "direct" | "embed"; // New: To handle mp4 vs iframe
+  linkType: "direct" | "embed";
   downloadUrl?: string;
-  createdAt: number; // For sorting
+  createdAt: number;
 }
 
 interface User {
@@ -37,7 +37,7 @@ async function getMovies() {
   const iter = kv.list<Movie>({ prefix: ["movies"] });
   const movies = [];
   for await (const res of iter) movies.push(res.value);
-  return movies.sort((a, b) => b.createdAt - a.createdAt); // Newest first
+  return movies.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 async function getPaginatedMovies(category: string, page: number, limit: number) {
@@ -78,11 +78,10 @@ function isPremium(user: User | null) {
   return new Date(user.expiryDate) > new Date();
 }
 
-// Resolve Redirects (For TkTube type links)
 async function resolveRedirect(url: string) {
   try {
     const res = await fetch(url, { method: "HEAD", redirect: "follow" });
-    return res.url; // Returns the final long URL
+    return res.url;
   } catch {
     return url;
   }
@@ -93,104 +92,130 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
   <html lang="my">
     <head>
       <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>{props.title || "Gold Flix Premium"}</title>
+      {/* Viewport fixed to prevent zooming (App Feel) */}
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <title>{props.title || "Gold Flix"}</title>
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
       <style>{`
-        body { background-color: #141414; color: #e5e5e5; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-        .gold-text { color: #E50914; } /* Netflix Red style or Gold #EAB308 */
-        .glass { background: #1f1f1f; border: 1px solid #333; }
+        body { background-color: #000; color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; user-select: none; }
+        .glass { background: #1a1a1a; border: 1px solid #333; }
         .input-box { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 4px; width: 100%; outline: none; }
-        .input-box:focus { border-color: #E50914; background: #404040; }
-        .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; transition: 0.2s; }
-        .btn-primary:hover { background: #f40612; }
+        .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 10px 20px; border-radius: 4px; }
+        
+        /* Loading Spinner */
+        #page-loader { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; transition: opacity 0.3s; pointer-events: none; opacity: 0; }
+        #page-loader.active { pointer-events: all; opacity: 1; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Disable image interaction */
+        img { pointer-events: none; -webkit-user-drag: none; }
       `}</style>
+      <script dangerouslySetInnerHTML={{__html: `
+        // Loading Animation Logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const loader = document.getElementById('page-loader');
+            
+            // Show loader on link click
+            document.querySelectorAll('a').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    const href = link.getAttribute('href');
+                    if(href && href.startsWith('/') && !href.startsWith('#')) {
+                        loader.classList.add('active');
+                    }
+                });
+            });
+
+            // Show loader on form submit
+            document.querySelectorAll('form').forEach(form => {
+                form.addEventListener('submit', () => loader.classList.add('active'));
+            });
+
+            // Hide loader when page is shown (back button fix)
+            window.addEventListener('pageshow', () => loader.classList.remove('active'));
+        });
+
+        // Click to Play Logic
+        function playVideo(containerId) {
+            document.getElementById(containerId + '-cover').style.display = 'none';
+            document.getElementById(containerId + '-player').style.display = 'block';
+        }
+      `}} />
     </head>
-    <body class="min-h-screen flex flex-col">
+    <body oncontextmenu="return false;"> {/* Disable Right Click Globally */}
+      
+      {/* Loading Overlay */}
+      <div id="page-loader"><div class="spinner"></div></div>
+
       {!props.hideNav && (
-        <nav class="sticky top-0 z-50 bg-black/90 backdrop-blur-sm border-b border-white/10 px-4 py-3">
+        <nav class="sticky top-0 z-40 bg-black/95 border-b border-white/10 px-4 py-3 shadow-lg">
           <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <a href="/" class="text-2xl font-black text-red-600 tracking-tighter">GOLD FLIX</a>
-            <div class="flex items-center gap-4 text-sm">
-              <a href="/" class="hover:text-white text-gray-400">Home</a>
-              <a href="/category/Movies" class="hover:text-white text-gray-400">Movies</a>
-              <a href="/category/Series" class="hover:text-white text-gray-400">Series</a>
-              <a href="/category/Adult" class="hover:text-red-500 text-red-600 font-bold">18+</a>
-              {props.user ? (
-                <a href="/profile" class="ml-2 w-8 h-8 rounded bg-red-600 flex items-center justify-center font-bold text-white">
-                   {props.user.username[0].toUpperCase()}
-                </a>
-              ) : (
-                <a href="/login" class="ml-2 bg-red-600 px-4 py-1 rounded text-white font-bold text-xs">Sign In</a>
-              )}
+            <a href="/" class="text-xl font-black text-red-600 tracking-tighter italic">GOLD FLIX</a>
+            <div class="flex gap-4 text-xs font-bold text-gray-400">
+              <a href="/" class="hover:text-white">Home</a>
+              <a href="/category/Movies" class="hover:text-white">Movies</a>
+              <a href="/category/Series" class="hover:text-white">Series</a>
+              <a href="/category/Adult" class="text-red-500">18+</a>
+              {props.user ? <a href="/profile" class="text-white">Profile</a> : <a href="/login">Login</a>}
             </div>
           </div>
         </nav>
       )}
 
-      <main class="flex-grow w-full">
+      <main class="flex-grow w-full pb-10">
         {props.children}
       </main>
-
-      <footer class="p-8 bg-black text-center text-gray-500 text-xs mt-10 border-t border-zinc-800">
-        © 2025 Gold Flix. Premium Streaming.
-      </footer>
     </body>
   </html>
 );
 
 // --- ROUTES ---
 
-// 1. Home Page (Preview Sections)
+// 1. Home Page (3 Columns for Mobile)
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
   const allMovies = await getMovies();
-  
   const sections = ["Movies", "Series", "Adult"];
   
   return c.html(
     <Layout user={user}>
-      {/* Hero / Banner (Optional - using first movie as featured) */}
+      {/* Featured Banner */}
       {allMovies[0] && (
-        <div class="relative h-[50vh] w-full overflow-hidden">
-             <img src={allMovies[0].posterUrl} class="w-full h-full object-cover opacity-60" />
-             <div class="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-black/60"></div>
-             <div class="absolute bottom-0 p-6 md:p-12 w-full">
-                 <span class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold mb-2 inline-block">Featured</span>
-                 <h1 class="text-4xl md:text-6xl font-bold text-white drop-shadow-lg mb-2">{allMovies[0].title}</h1>
-                 <p class="max-w-xl text-gray-300 line-clamp-2 mb-4">{allMovies[0].description}</p>
-                 <a href={`/movie/${allMovies[0].id}`} class="btn-primary inline-flex items-center gap-2">
-                    <i class="fa-solid fa-play"></i> Play Now
+        <div class="relative w-full aspect-video md:h-[50vh] overflow-hidden">
+             <img src={allMovies[0].posterUrl} class="w-full h-full object-cover opacity-70" />
+             <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent"></div>
+             <div class="absolute bottom-4 left-4 right-4">
+                 <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">New Arrival</span>
+                 <h1 class="text-2xl font-bold text-white drop-shadow-md truncate">{allMovies[0].title}</h1>
+                 <a href={`/movie/${allMovies[0].id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm">
+                    <i class="fa-solid fa-play"></i> Play
                  </a>
              </div>
         </div>
       )}
 
-      <div class="max-w-7xl mx-auto px-4 py-8 space-y-12">
+      <div class="px-3 py-6 space-y-8">
         {sections.map(cat => {
-            const catMovies = allMovies.filter(m => m.category === cat).slice(0, 6); // Show only 6
+            const catMovies = allMovies.filter(m => m.category === cat).slice(0, 6);
             if (catMovies.length === 0) return null;
             return (
                 <div>
-                    <div class="flex justify-between items-end mb-4 px-1">
-                        <h2 class="text-xl md:text-2xl font-bold text-white border-l-4 border-red-600 pl-3">{cat}</h2>
-                        <a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 hover:text-white flex items-center gap-1">
-                            See All <i class="fa-solid fa-chevron-right"></i>
+                    <div class="flex justify-between items-end mb-3 px-1">
+                        <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2>
+                        <a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">
+                            More <i class="fa-solid fa-chevron-right text-[10px]"></i>
                         </a>
                     </div>
-                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+                    {/* 3 Columns Grid */}
+                    <div class="grid grid-cols-3 gap-2">
                         {catMovies.map(m => (
-                            <a href={`/movie/${m.id}`} class="group block relative rounded bg-[#1f1f1f] overflow-hidden hover:z-10 transition-transform duration-300 hover:scale-105">
+                            <a href={`/movie/${m.id}`} class="block relative rounded bg-[#1f1f1f] overflow-hidden active:scale-95 transition-transform">
                                 <div class="aspect-[2/3] w-full">
                                     <img src={m.posterUrl} class="w-full h-full object-cover" />
                                 </div>
-                                <div class="p-2">
-                                    <h3 class="text-sm font-bold truncate text-white">{m.title}</h3>
-                                    <div class="flex justify-between text-[10px] text-gray-400 mt-1">
-                                        <span>{m.year}</span>
-                                        <span>HD</span>
-                                    </div>
+                                <div class="p-1.5">
+                                    <h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3>
                                 </div>
                             </a>
                         ))}
@@ -203,132 +228,133 @@ app.get("/", async (c) => {
   );
 });
 
-// 2. Category Page with Pagination
+// 2. Category Page (Pagination + 3 Cols)
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
     const page = parseInt(c.req.query("page") || "1");
     const limit = 15;
-    
     const { data, totalPages } = await getPaginatedMovies(cat, page, limit);
 
     return c.html(
         <Layout user={user}>
-            <div class="max-w-7xl mx-auto px-4 py-8">
-                <h1 class="text-3xl font-bold mb-6 text-white">{cat} <span class="text-lg text-gray-500 font-normal">(Page {page})</span></h1>
+            <div class="px-3 py-6">
+                <h1 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
+                    <a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a>
+                    {cat}
+                </h1>
                 
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div class="grid grid-cols-3 gap-2">
                     {data.map(m => (
-                         <a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden hover:ring-2 hover:ring-red-600 transition">
+                         <a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden">
                             <img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" />
-                            <div class="p-3">
-                                <h3 class="text-sm font-bold truncate text-white">{m.title}</h3>
+                            <div class="p-1.5">
+                                <h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3>
                             </div>
                          </a>
                     ))}
                 </div>
 
-                {/* Pagination Controls */}
-                <div class="flex justify-center gap-4 mt-10">
-                    {page > 1 && (
-                        <a href={`/category/${cat}?page=${page - 1}`} class="btn-primary bg-gray-700 hover:bg-gray-600">Prev</a>
-                    )}
-                    <span class="py-2 px-4 bg-black border border-gray-700 rounded text-gray-400">
-                        {page} / {totalPages || 1}
-                    </span>
-                    {page < totalPages && (
-                        <a href={`/category/${cat}?page=${page + 1}`} class="btn-primary">Next</a>
-                    )}
+                <div class="flex justify-center gap-4 mt-8 text-sm font-bold">
+                    {page > 1 && <a href={`/category/${cat}?page=${page - 1}`} class="px-4 py-2 bg-gray-800 rounded">Prev</a>}
+                    <span class="py-2 px-4 text-gray-400">{page} / {totalPages || 1}</span>
+                    {page < totalPages && <a href={`/category/${cat}?page=${page + 1}`} class="px-4 py-2 bg-red-600 rounded">Next</a>}
                 </div>
             </div>
         </Layout>
     );
 });
 
-// 3. Movie Detail & Resolving Link
+// 3. Movie Detail (Click-to-Play Overlay)
 app.get("/movie/:id", async (c) => {
     const id = c.req.param("id");
     const movie = await getMovie(id);
     const user = await getCurrentUser(c);
-    
     if (!movie) return c.text("Not Found", 404);
   
     const premium = isPremium(user);
     
-    // Auto-resolve redirect if it's a direct link type (Attempt to fix tkTube links)
+    // Auto-resolve logic
     let finalStreamUrl = movie.streamUrl;
     if (premium && movie.linkType === "direct" && !movie.streamUrl.includes("iframe")) {
-        // Only try to resolve if it looks like a short link
         finalStreamUrl = await resolveRedirect(movie.streamUrl);
     }
   
     return c.html(
       <Layout user={user} title={movie.title}>
-        <div class="max-w-6xl mx-auto px-4 py-6">
-           <div class="bg-black aspect-video w-full rounded-lg overflow-hidden border border-zinc-800 relative shadow-2xl">
+        <div class="max-w-4xl mx-auto">
+           {/* Video Section */}
+           <div class="w-full aspect-video bg-black relative shadow-lg">
               {premium ? (
-                  movie.linkType === "embed" || movie.streamUrl.includes("<iframe") ? (
-                      <div dangerouslySetInnerHTML={{__html: movie.streamUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
-                  ) : (
-                      <video controls class="w-full h-full" poster={movie.posterUrl} preload="metadata">
-                          <source src={finalStreamUrl} type="video/mp4" />
-                          <p class="text-center mt-20">Your browser cannot play this video.</p>
-                      </video>
-                  )
+                  <>
+                    {/* Cover / Click Trigger */}
+                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer group" onclick="playVideo('video')">
+                        <img src={movie.posterUrl} class="w-full h-full object-cover opacity-50 blur-[2px]" />
+                        <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
+                            <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(229,9,20,0.6)] group-hover:scale-110 transition-transform">
+                                <i class="fa-solid fa-play text-white text-2xl ml-1"></i>
+                            </div>
+                            <p class="text-white font-bold mt-2 text-sm animate-pulse">Click to Play</p>
+                        </div>
+                    </div>
+
+                    {/* Actual Player (Hidden Initially) */}
+                    <div id="video-player" class="w-full h-full hidden">
+                        {movie.linkType === "embed" || movie.streamUrl.includes("<iframe") ? (
+                             <div dangerouslySetInnerHTML={{__html: movie.streamUrl}} class="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"></div>
+                        ) : (
+                             <video controls class="w-full h-full" autoplay poster={movie.posterUrl}>
+                                 <source src={finalStreamUrl} type="video/mp4" />
+                             </video>
+                        )}
+                    </div>
+                  </>
               ) : (
-                  <div class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 text-center">
-                      <i class="fa-solid fa-lock text-5xl text-red-600 mb-4"></i>
-                      <h2 class="text-2xl font-bold text-white">Premium Content</h2>
-                      <p class="text-gray-400 mb-6 mt-2">Activate a VIP Key to watch this video.</p>
-                      {user ? <a href="/profile" class="btn-primary">Upgrade Now</a> : <a href="/login" class="btn-primary">Login to Watch</a>}
+                  // Locked View
+                  <div class="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 z-30">
+                      <i class="fa-solid fa-lock text-4xl text-red-600 mb-2"></i>
+                      <h2 class="text-lg font-bold text-white">VIP Only</h2>
+                      <a href={user ? "/profile" : "/login"} class="mt-4 bg-white text-black px-6 py-2 rounded font-bold text-sm">
+                          Unlock Now
+                      </a>
                   </div>
               )}
            </div>
            
-           <div class="mt-6 grid md:grid-cols-[3fr_1fr] gap-8">
-               <div>
-                   <h1 class="text-3xl font-bold text-white mb-2">{movie.title}</h1>
-                   <div class="flex items-center gap-3 text-sm text-gray-400 mb-4">
-                       <span class="border border-gray-600 px-2 rounded">{movie.year}</span>
-                       <span class="text-red-500 font-bold">{movie.category}</span>
-                       <span>{movie.tags}</span>
-                   </div>
-                   <p class="text-gray-300 leading-relaxed">{movie.description}</p>
-                   {premium && movie.downloadUrl && (
-                       <a href={movie.downloadUrl} target="_blank" class="mt-6 inline-block bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-3 rounded font-bold">
-                           <i class="fa-solid fa-download mr-2"></i> Download
-                       </a>
-                   )}
+           <div class="p-4">
+               <h1 class="text-2xl font-bold text-white mb-2">{movie.title}</h1>
+               <div class="flex items-center gap-2 text-xs text-gray-400 mb-4">
+                   <span class="bg-gray-800 px-2 py-0.5 rounded">{movie.year}</span>
+                   <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
-               <div class="bg-[#1f1f1f] p-4 rounded h-fit">
-                   <img src={movie.posterUrl} class="w-full rounded mb-3" />
-                   <p class="text-center text-xs text-gray-500">Scan to share</p>
-               </div>
+               <p class="text-sm text-gray-300 leading-relaxed mb-6">{movie.description}</p>
+               
+               {premium && movie.downloadUrl && (
+                   <a href={movie.downloadUrl} target="_blank" class="block w-full text-center bg-gray-800 py-3 rounded text-white font-bold text-sm">
+                       <i class="fa-solid fa-download mr-2"></i> Download
+                   </a>
+               )}
            </div>
         </div>
       </Layout>
     );
 });
 
-// 4. Auth Pages (Fixed UI - Centered & Straight)
+// 4. Auth Pages (Centered, Standard)
 app.get("/login", (c) => c.html(
     <Layout hideNav={true}>
-        <div class="min-h-screen flex items-center justify-center bg-[url('https://assets.nflxext.com/ffe/siteui/vlv3/ab180a27-b661-44cd-9579-9dcaf57d6da0/9661a72d-222a-4318-910a-31a87e83d352/US-en-20231009-popsignuptwoweeks-perspective_alpha_website_large.jpg')] bg-cover bg-center">
-            <div class="absolute inset-0 bg-black/60"></div>
-            <div class="relative z-10 bg-black/75 p-8 md:p-12 rounded-lg max-w-md w-full shadow-2xl border-t-2 border-red-600">
-                <h1 class="text-3xl font-bold text-white mb-8">Sign In</h1>
-                <form action="/login" method="post" class="space-y-4">
+        <div class="min-h-screen flex items-center justify-center bg-black p-4">
+            <div class="w-full max-w-sm">
+                <h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1>
+                <form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4">
+                    <h2 class="text-xl font-bold text-white mb-2">Sign In</h2>
                     <input name="username" placeholder="Username" required class="input-box" />
                     <input type="password" name="password" placeholder="Password" required class="input-box" />
-                    <button class="btn-primary w-full py-3 mt-4 text-lg">Sign In</button>
-                    <div class="flex justify-between text-sm text-gray-400 mt-2">
-                         <label class="flex items-center"><input type="checkbox" class="mr-2" /> Remember me</label>
-                         <a href="#" class="hover:underline">Need help?</a>
-                    </div>
+                    <button class="btn-primary w-full mt-2">Login</button>
+                    <p class="text-xs text-gray-500 text-center mt-4">
+                        No account? <a href="/signup" class="text-white font-bold">Sign up</a>
+                    </p>
                 </form>
-                <div class="mt-8 text-gray-400 text-sm">
-                    New to Gold Flix? <a href="/signup" class="text-white hover:underline font-bold">Sign up now</a>.
-                </div>
             </div>
         </div>
     </Layout>
@@ -341,20 +367,23 @@ app.post("/login", async (c) => {
         setCookie(c, "user_session", String(username), { path: "/", maxAge: 86400 * 30 });
         return c.redirect("/profile");
     }
-    return c.text("Invalid Credentials", 401);
+    return c.text("Error: Invalid Login", 401);
 });
 
 app.get("/signup", (c) => c.html(
     <Layout hideNav={true}>
-        <div class="min-h-screen flex items-center justify-center bg-black">
-             <div class="bg-[#1f1f1f] p-8 md:p-12 rounded-lg max-w-md w-full border border-zinc-800">
-                <h1 class="text-3xl font-bold text-white mb-6">Create Account</h1>
-                <form action="/signup" method="post" class="space-y-4">
-                    <input name="username" placeholder="Choose Username" required class="input-box" />
-                    <input type="password" name="password" placeholder="Create Password" required class="input-box" />
-                    <button class="btn-primary w-full py-3 text-lg">Sign Up</button>
+        <div class="min-h-screen flex items-center justify-center bg-black p-4">
+             <div class="w-full max-w-sm">
+                <h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1>
+                <form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4">
+                    <h2 class="text-xl font-bold text-white mb-2">Create Account</h2>
+                    <input name="username" placeholder="Username" required class="input-box" />
+                    <input type="password" name="password" placeholder="Password" required class="input-box" />
+                    <button class="btn-primary w-full mt-2">Sign Up</button>
+                    <p class="text-xs text-gray-500 text-center mt-4">
+                        Has account? <a href="/login" class="text-white font-bold">Login</a>
+                    </p>
                 </form>
-                <p class="mt-4 text-gray-400 text-center">Already have an account? <a href="/login" class="text-white font-bold">Login</a></p>
             </div>
         </div>
     </Layout>
@@ -362,7 +391,7 @@ app.get("/signup", (c) => c.html(
 
 app.post("/signup", async (c) => {
     const { username, password } = await c.req.parseBody();
-    if (await getUser(username as string)) return c.text("User already exists", 400);
+    if (await getUser(username as string)) return c.text("User exists", 400);
     const newUser: User = { username: String(username), password: String(password), expiryDate: null, favorites: [] };
     await kv.set(["users", String(username)], newUser);
     return c.redirect("/login");
@@ -377,30 +406,29 @@ app.get("/profile", async (c) => {
 
     return c.html(
         <Layout user={user}>
-            <div class="max-w-2xl mx-auto px-4 py-10">
-                <h1 class="text-3xl font-bold mb-8">Account</h1>
-                <div class="bg-[#1f1f1f] p-6 rounded border border-zinc-700 flex flex-col md:flex-row gap-6 items-center">
-                    <div class="w-24 h-24 bg-red-600 rounded-full flex items-center justify-center text-4xl font-bold text-white">
+            <div class="p-4">
+                <h1 class="text-2xl font-bold mb-6">Profile</h1>
+                <div class="bg-[#1f1f1f] p-4 rounded-lg flex items-center gap-4 mb-6">
+                    <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-2xl font-bold">
                         {user.username[0].toUpperCase()}
                     </div>
-                    <div class="flex-grow text-center md:text-left">
-                        <h2 class="text-xl font-bold">{user.username}</h2>
-                        <p class="text-gray-400 text-sm">Member since 2025</p>
-                        <div class="mt-2 inline-block px-3 py-1 rounded bg-black border border-zinc-700 text-sm">
-                            Status: <span class={premium ? "text-green-500 font-bold" : "text-gray-500"}>{premium ? "Premium VIP" : "Free Plan"}</span>
-                        </div>
-                        {premium && <p class="text-xs text-green-400 mt-1">{daysLeft} days remaining</p>}
+                    <div>
+                        <h2 class="text-lg font-bold">{user.username}</h2>
+                        <p class={`text-sm ${premium ? "text-green-500" : "text-gray-500"}`}>
+                            {premium ? `VIP Active (${daysLeft} days)` : "Free Account"}
+                        </p>
                     </div>
-                    <a href="/logout" class="text-red-500 hover:underline text-sm font-bold">Sign Out</a>
                 </div>
 
-                <div class="mt-8 bg-[#1f1f1f] p-6 rounded border border-zinc-700">
-                    <h3 class="font-bold text-lg mb-4 text-yellow-500">Redeem VIP Key</h3>
+                <div class="bg-[#1f1f1f] p-4 rounded-lg mb-6">
+                    <h3 class="font-bold mb-3 text-sm text-gray-400 uppercase">Redeem Code</h3>
                     <form action="/profile/redeem" method="post" class="flex gap-2">
-                        <input name="key" placeholder="Enter XXXXX-XXXXX key" required class="input-box" />
-                        <button class="btn-primary whitespace-nowrap">Activate</button>
+                        <input name="key" placeholder="Enter VIP Key" required class="input-box" />
+                        <button class="btn-primary whitespace-nowrap">Submit</button>
                     </form>
                 </div>
+
+                <a href="/logout" class="block w-full bg-zinc-800 text-center py-3 rounded text-red-500 font-bold">Log Out</a>
             </div>
         </Layout>
     );
@@ -429,21 +457,20 @@ app.get("/logout", (c) => {
     return c.redirect("/");
 });
 
-// --- ADMIN PANEL ---
+// --- ADMIN ---
 const adminAuth = async (c: any, next: any) => {
   const session = getCookie(c, "admin_session");
-  const envPass = Deno.env.get("ADMIN_PASSWORD");
-  if (session === envPass) await next();
+  if (session === Deno.env.get("ADMIN_PASSWORD")) await next();
   else return c.redirect("/admin");
 };
 
 app.get("/admin", (c) => c.html(
     <Layout hideNav={true}>
         <div class="min-h-screen flex items-center justify-center bg-black">
-            <form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded border border-zinc-700 w-80">
-                <h2 class="text-xl font-bold mb-4 text-center">Admin Login</h2>
-                <input type="password" name="password" placeholder="Pass Code" class="input-box mb-4" />
-                <button class="btn-primary w-full">Access</button>
+            <form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80">
+                <h2 class="font-bold text-center mb-4">Admin Login</h2>
+                <input type="password" name="password" placeholder="Key" class="input-box mb-4" />
+                <button class="btn-primary w-full">Enter</button>
             </form>
         </div>
     </Layout>
@@ -463,86 +490,67 @@ app.get("/admin/dashboard", adminAuth, async (c) => {
     const keys = await getKeys();
     return c.html(
         <Layout title="Admin">
-            <div class="bg-zinc-900 min-h-screen p-4 md:p-8">
-                <div class="flex justify-between items-center mb-8">
-                    <h1 class="text-2xl font-bold text-red-600">Admin Control</h1>
-                    <a href="/" class="bg-black px-4 py-2 rounded border border-zinc-700 hover:text-white">View Site</a>
+            <div class="p-4 bg-zinc-900 min-h-screen">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="font-bold text-red-600">Admin Panel</h1>
+                    <a href="/" class="text-xs bg-black px-3 py-1 rounded">View App</a>
                 </div>
 
-                <div class="grid lg:grid-cols-3 gap-8">
-                    {/* Add Movie Form */}
-                    <div class="lg:col-span-1 space-y-6">
-                        <div class="bg-[#1f1f1f] p-6 rounded border border-zinc-700">
-                            <h2 class="font-bold mb-4 text-white">Add Movie</h2>
-                            <form action="/admin/movie/save" method="post" class="space-y-3">
+                <div class="grid lg:grid-cols-2 gap-6">
+                    <div class="space-y-6">
+                        {/* Add Movie */}
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700">
+                            <h2 class="font-bold mb-3 text-sm">Add Movie</h2>
+                            <form action="/admin/movie/save" method="post" class="space-y-2 text-sm">
                                 <input type="hidden" name="id" value={crypto.randomUUID()} />
-                                <input name="title" placeholder="Movie Title" required class="input-box" />
+                                <input name="title" placeholder="Title" required class="input-box" />
                                 <div class="flex gap-2">
-                                    <select name="category" class="input-box">
-                                        <option>Movies</option><option>Series</option><option>Adult</option>
-                                    </select>
-                                    <input name="year" value="2025" class="input-box w-24" />
+                                    <select name="category" class="input-box"><option>Movies</option><option>Series</option><option>Adult</option></select>
+                                    <input name="year" value="2025" class="input-box w-20" />
                                 </div>
-                                <input name="posterUrl" placeholder="Poster Image URL" required class="input-box" />
-                                
-                                {/* New Link Type Selector */}
-                                <div class="bg-black/30 p-3 rounded border border-zinc-700">
-                                    <label class="text-xs text-gray-400 block mb-2">Video Source Type</label>
-                                    <select name="linkType" class="input-box mb-2 text-sm">
-                                        <option value="direct">Direct Link (Auto-Resolve Redirects)</option>
-                                        <option value="embed">Embed Code / Iframe (Recommended)</option>
+                                <input name="posterUrl" placeholder="Poster URL" required class="input-box" />
+                                <div class="p-2 bg-black rounded border border-zinc-800">
+                                    <select name="linkType" class="input-box mb-2 text-xs">
+                                        <option value="direct">Direct Link (Auto-Resolve)</option>
+                                        <option value="embed">Embed Code / Iframe</option>
                                     </select>
-                                    <input name="streamUrl" placeholder="Paste URL or Embed Code here..." required class="input-box" />
+                                    <input name="streamUrl" placeholder="URL or Iframe Code" required class="input-box" />
                                 </div>
-                                
-                                <input name="tags" placeholder="Tags (e.g. Action, 2025)" class="input-box" />
-                                <textarea name="description" placeholder="Description" rows={3} class="input-box"></textarea>
-                                <button class="btn-primary w-full">Save Movie</button>
+                                <textarea name="description" placeholder="Desc" class="input-box"></textarea>
+                                <button class="btn-primary w-full">Save</button>
                             </form>
                         </div>
-
                         {/* Key Gen */}
-                        <div class="bg-[#1f1f1f] p-6 rounded border border-zinc-700">
-                            <h2 class="font-bold mb-4">Generate VIP Key</h2>
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700">
+                            <h2 class="font-bold mb-3 text-sm">VIP Keys</h2>
                             <form action="/admin/key/create" method="post" class="flex gap-2">
-                                <input type="number" name="days" placeholder="Days" required class="input-box w-20" />
-                                <button class="btn-primary flex-grow">Generate</button>
+                                <input type="number" name="days" placeholder="Days" required class="input-box" />
+                                <button class="btn-primary">Gen</button>
                             </form>
-                            <div class="mt-4 max-h-40 overflow-y-auto space-y-2">
+                            <div class="mt-2 max-h-32 overflow-y-auto">
                                 {keys.map(k => (
-                                    <div class="flex justify-between items-center bg-black p-2 rounded text-xs border border-zinc-800">
+                                    <div class="flex justify-between text-xs p-2 border-b border-zinc-800">
                                         <span class="text-yellow-500 font-mono">{k.code}</span>
                                         <span>{k.days}D</span>
-                                        <form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">×</button></form>
+                                        <form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     </div>
-
                     {/* Movie List */}
-                    <div class="lg:col-span-2">
-                        <div class="bg-[#1f1f1f] p-6 rounded border border-zinc-700">
-                            <h2 class="font-bold mb-4">Library ({movies.length})</h2>
-                            <div class="space-y-2 max-h-[80vh] overflow-y-auto pr-2">
-                                {movies.map(m => (
-                                    <div class="flex gap-4 bg-black p-3 rounded border border-zinc-800 items-center">
-                                        <img src={m.posterUrl} class="w-12 h-16 object-cover rounded" />
-                                        <div class="flex-grow">
-                                            <h3 class="font-bold text-sm text-white">{m.title}</h3>
-                                            <div class="text-xs text-gray-500 flex gap-2">
-                                                <span>{m.category}</span>
-                                                <span>{m.year}</span>
-                                                <span class="text-red-500 uppercase">{m.linkType}</span>
-                                            </div>
-                                        </div>
-                                        <form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Delete?');">
-                                            <button class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button>
-                                        </form>
-                                    </div>
-                                ))}
+                    <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 max-h-[80vh] overflow-y-auto">
+                        <h2 class="font-bold mb-3 text-sm">Library ({movies.length})</h2>
+                        {movies.map(m => (
+                            <div class="flex gap-3 mb-3 p-2 bg-black rounded items-center">
+                                <img src={m.posterUrl} class="w-10 h-14 object-cover" />
+                                <div class="flex-grow min-w-0">
+                                    <div class="font-bold text-xs truncate">{m.title}</div>
+                                    <div class="text-[10px] text-gray-500">{m.category}</div>
+                                </div>
+                                <form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs">Del</button></form>
                             </div>
-                        </div>
+                        ))}
                     </div>
                 </div>
             </div>
