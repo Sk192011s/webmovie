@@ -122,18 +122,34 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update()); }
+            
             const loader = document.getElementById('page-loader');
-            document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
+            
+            document.addEventListener('contextmenu', e => { 
+                if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
+            });
+            
+            // GLOBAL LINK LOADER (IMPROVED FIX)
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
                     const href = link.getAttribute('href');
                     const target = link.getAttribute('target');
-                    if (href && href.startsWith('/') && !href.includes('logout') && !href.includes('#') && target !== '_blank') { loader.classList.add('active'); }
+                    
+                    // STOP Loader if it's a new tab/download
+                    if (target === '_blank' || link.hasAttribute('download')) {
+                        return;
+                    }
+
+                    if (href && href.startsWith('/') && !href.includes('logout') && !href.includes('#')) {
+                        loader.classList.add('active');
+                    }
                 }
             });
+            
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
+
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
@@ -149,15 +165,11 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     const el = document.createElement('textarea'); el.value = window.location.href; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el); showToast('Link Copied!', 'success');
                 }
             }
-            
-            // Toggle Help
+
+            // TOGGLE HELP (FIXED)
             window.toggleHelp = function() {
                 const el = document.getElementById('download-help');
-                if (el.style.display === 'none') {
-                    el.style.display = 'block';
-                } else {
-                    el.style.display = 'none';
-                }
+                el.classList.toggle('hidden');
             }
 
             window.loadPlayer = function(url, type, movieId, title, poster) {
@@ -524,7 +536,7 @@ app.get("/movie/:id", async (c) => {
                                 </a>
                             )}
                             <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700">
-                                <i class="fa-solid fa-share-nodes"></i>
+                                <i class="fa-solid fa-share-nodes"></i> Share
                             </button>
                        </div>
                        
@@ -533,7 +545,7 @@ app.get("/movie/:id", async (c) => {
                            <i class="fa-solid fa-circle-question"></i> ဒေါင်းလုဒ်လုပ်နည်း
                        </button>
                        <div id="download-help" class="hidden bg-zinc-900 border border-yellow-600/50 rounded-lg p-3 text-xs text-gray-300 space-y-2 mt-1">
-                           <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>'DL' ခလုတ်ကို နှိပ်ပြီး တိုက်ရိုက်ဒေါင်းနိုင်ပါသည်။</p>
+                           <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>Download (သို့) DL ခလုတ်ပါလျှင် နှိပ်၍ ဒေါင်းပါ။ မပါလျှင် Video Play ပြီးမှ ဒေါင်းပါ။</p>
                            <hr class="border-zinc-700"/>
                            <p><strong class="text-yellow-500">နည်းလမ်း (၂) - Video Player မှတဆင့်</strong><br/>1. Video ကို Play နှိပ်ပါ။<br/>2. Video ဖွင့်လာလျှင် ညာဘက်အောက်ထောင့်က အစက် ၃ စက် (<i class="fa-solid fa-ellipsis-vertical"></i>) ကိုနှိပ်ပါ။<br/>3. 'Download' ကို ရွေးချယ်ပါ။</p>
                        </div>
