@@ -76,6 +76,11 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      {/* NO CACHE META TAGS (Important Fix) */}
+      <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+      <meta http-equiv="Pragma" content="no-cache" />
+      <meta http-equiv="Expires" content="0" />
+      
       <title>{props.title || "Gold Flix"}</title>
       <link rel="manifest" href="/manifest.json" />
       <meta name="theme-color" content="#000000" />
@@ -103,24 +108,10 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         #page-loader.active { pointer-events: all; opacity: 1; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        /* SLIDER FIX HERE */
         .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
-        .slide { 
-            position: absolute; 
-            inset: 0; 
-            opacity: 0; 
-            transition: opacity 1s ease-in-out; 
-            pointer-events: none; /* Disable clicks on hidden slides */
-            z-index: 0;
-        }
-        .slide.active { 
-            opacity: 1; 
-            pointer-events: auto; /* Enable clicks only on active slide */
-            z-index: 10;
-        }
+        .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; pointer-events: none; z-index: 0; }
+        .slide.active { opacity: 1; pointer-events: auto; z-index: 10; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
-        
         .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
         .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
         .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
@@ -275,6 +266,11 @@ app.get("/service-worker.js", (c) => c.text(`
 
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
+  // CACHE BUSTING: Force browser to re-check content for Home Page
+  c.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  c.header('Pragma', 'no-cache');
+  c.header('Expires', '0');
+
   const allMovies = await getMovies();
   const config = await getConfig();
   const sliderMovies = allMovies.filter(m => m.coverUrl && m.coverUrl.length > 5).slice(0, 5);
@@ -298,7 +294,7 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
-                         {/* FIX: Play Button is now a proper Link */}
+                         {/* FIX: Direct Link to Detail Page */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
