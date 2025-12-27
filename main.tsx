@@ -38,7 +38,6 @@ async function getMovies() {
   const iter = kv.list<Movie>({ prefix: ["movies"] });
   const movies = [];
   for await (const res of iter) movies.push(res.value);
-  // SORTING FIX: Newest First
   return movies.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 }
 async function getMovie(id: string) { const res = await kv.get<Movie>(["movies", id]); return res.value; }
@@ -143,19 +142,16 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 if(loader) loader.style.display = 'flex';
                 
                 let htmlContent = '';
-                // Check if embed or direct
                 if (type === 'embed' || url.includes('<iframe')) {
                     htmlContent = url.includes('<iframe') ? url : '<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
                     setTimeout(() => { if(loader) loader.style.display = 'none'; }, 2000);
                 } else {
-                    // Direct Video (MP4)
                     htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>';
                 }
                 
                 container.innerHTML = htmlContent;
                 container.style.display = 'block';
                 
-                // Add listeners to new video tag
                 const video = container.querySelector('video');
                 if(video) {
                     video.addEventListener('loadeddata', () => { if(loader) loader.style.display = 'none'; });
@@ -268,7 +264,7 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & DOWNLOAD
+// 6. STREAM & DOWNLOAD LOGIC
 // =======================
 
 app.get("/stream/:token", async (c) => {
@@ -327,11 +323,8 @@ app.get("/movie/:id", async (c) => {
            <div class="w-full aspect-video bg-black relative shadow-lg group">
               {premium ? (
                   <>
-                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer" onclick={`loadPlayer('${playerUrl}', '${movie.linkType}')`}>
-                        <img src={displayImage} class="w-full h-full object-cover opacity-50" />
-                        <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
-                            {/* Play Icon is now on the button below, but clicking cover also works */}
-                        </div>
+                    <div id="video-cover" class="absolute inset-0 z-20">
+                        <img src={displayImage} class="w-full h-full object-cover" />
                     </div>
                     <div id="video-player-loader" class="video-loader"><div class="spinner"></div></div>
                     <div id="video-player" class="w-full h-full hidden"></div>
@@ -367,7 +360,6 @@ app.get("/movie/:id", async (c) => {
                {/* ACTION BUTTONS (PLAY BUTTON FIXED) */}
                {premium && (
                    <div class="flex gap-3 mb-6">
-                        {/* Play Button - Now uses valid JS function call */}
                         {movie.category !== "Series" && (
                             <button onclick={`loadPlayer('${playerUrl}', '${movie.linkType}')`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
                                 <i class="fa-solid fa-play"></i> Play Movie
