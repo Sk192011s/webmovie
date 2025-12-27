@@ -121,12 +121,11 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             const loader = document.getElementById('page-loader');
             
-            // Prevent Right Click
             document.addEventListener('contextmenu', e => { 
                 if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
             });
             
-            // GLOBAL LINK LOADER (FIXED FOR DYNAMIC CONTENT)
+            // GLOBAL LINK LOADER
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
@@ -148,8 +147,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
-            
-            loadContinueWatching();
 
             // Share Function
             window.shareMovie = function(title) {
@@ -161,8 +158,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             }
 
             // Player Loader
-            window.loadPlayer = function(url, type, movieId, title, poster) {
-                saveProgress(movieId, title, poster);
+            window.loadPlayer = function(url, type) {
                 const container = document.getElementById('video-player');
                 const cover = document.getElementById('video-cover');
                 const loader = document.getElementById('video-player-loader');
@@ -189,22 +185,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             window.filterMovies = function(val) { document.querySelectorAll('.movie-item').forEach(i => i.style.display=i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase())?'flex':'none'); }
         });
-
-        function saveProgress(id, title, poster) {
-            let history = JSON.parse(localStorage.getItem('goldflix_history') || '[]');
-            history = history.filter(h => h.id !== id);
-            history.unshift({ id, title, poster, timestamp: Date.now() });
-            if(history.length > 10) history.pop();
-            localStorage.setItem('goldflix_history', JSON.stringify(history));
-        }
-
-        function loadContinueWatching() {
-            const container = document.getElementById('continue-watching-list');
-            if(!container) return;
-            const history = JSON.parse(localStorage.getItem('goldflix_history') || '[]');
-            if(history.length === 0) { document.getElementById('continue-watching-section').style.display = 'none'; return; }
-            container.innerHTML = history.map(m => '<a href="/movie/'+m.id+'" class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden active:scale-95 transition-transform"><img src="'+m.poster+'" /><div class="absolute bottom-0 w-full bg-black/60 p-1"><div class="h-1 w-full bg-gray-600 rounded-full overflow-hidden"><div class="h-full bg-red-600 w-1/2"></div></div><h3 class="text-[9px] font-bold truncate text-white mt-1">'+m.title+'</h3></div></a>').join('');
-        }
 
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
         let page = 1; let isLoading = false; let hasMore = true;
@@ -307,19 +287,13 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
-                         {/* FIX: Play Button is now a LINK to detail page */}
+                         {/* FIX: Play Button is now a proper Link */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
              ))}
         </div>
       )}
-
-      {/* CONTINUE WATCHING SECTION */}
-      <div id="continue-watching-section" class="px-3 pt-6">
-          <h2 class="text-lg font-bold text-white mb-3 flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-yellow-500"></i> Continue Watching</h2>
-          <div id="continue-watching-list" class="h-scroll-section custom-scroll"></div>
-      </div>
 
       <div class="px-3 py-6 space-y-8">
         {sections.map(cat => {
