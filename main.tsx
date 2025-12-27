@@ -32,21 +32,15 @@ interface User {
 interface VipKey { code: string; days: number; }
 
 // =======================
-// 2. DB FUNCTIONS (SORT FIX HERE)
+// 2. DB FUNCTIONS
 // =======================
 async function getMovies() {
   const iter = kv.list<Movie>({ prefix: ["movies"] });
   const movies = [];
   for await (const res of iter) movies.push(res.value);
-  
-  // FIX: Force convert to Number and handle missing dates to ensure Newest First
-  return movies.sort((a, b) => {
-      const timeA = Number(a.createdAt) || 0;
-      const timeB = Number(b.createdAt) || 0;
-      return timeB - timeA; // Descending Order (Newest on Top)
-  });
+  // SORTING FIX: Newest First
+  return movies.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 }
-
 async function getMovie(id: string) { const res = await kv.get<Movie>(["movies", id]); return res.value; }
 async function getUser(username: string) { const res = await kv.get<User>(["users", username]); return res.value; }
 async function getKeys() { const iter = kv.list<VipKey>({ prefix: ["keys"] }); const keys = []; for await (const res of iter) keys.push(res.value); return keys; }
@@ -138,49 +132,39 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
             
-            // VIDEO PLAYER LOGIC
-            window.injectVideo = function(containerId, htmlContent) {
-                const container = document.getElementById(containerId);
-                const cover = document.getElementById(containerId + '-cover');
-                const loader = document.getElementById(containerId + '-loader');
+            // --- MASTER VIDEO LOADER ---
+            window.loadPlayer = function(url, type) {
+                const container = document.getElementById('video-player');
+                const cover = document.getElementById('video-cover');
+                const loader = document.getElementById('video-player-loader');
                 
-                cover.style.display = 'none';
-                loader.style.display = 'flex';
+                // Show local loader, hide cover
+                if(cover) cover.style.display = 'none';
+                if(loader) loader.style.display = 'flex';
+                
+                let htmlContent = '';
+                // Check if embed or direct
+                if (type === 'embed' || url.includes('<iframe')) {
+                    htmlContent = url.includes('<iframe') ? url : '<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
+                    setTimeout(() => { if(loader) loader.style.display = 'none'; }, 2000);
+                } else {
+                    // Direct Video (MP4)
+                    htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>';
+                }
                 
                 container.innerHTML = htmlContent;
                 container.style.display = 'block';
                 
+                // Add listeners to new video tag
                 const video = container.querySelector('video');
                 if(video) {
-                    video.addEventListener('loadeddata', () => loader.style.display = 'none');
-                    video.addEventListener('waiting', () => loader.style.display = 'flex');
-                    video.addEventListener('playing', () => loader.style.display = 'none');
+                    video.addEventListener('loadeddata', () => { if(loader) loader.style.display = 'none'; });
+                    video.addEventListener('waiting', () => { if(loader) loader.style.display = 'flex'; });
+                    video.addEventListener('playing', () => { if(loader) loader.style.display = 'none'; });
                     video.play().catch(e => console.log("Autoplay prevented"));
-                } else {
-                    setTimeout(() => loader.style.display = 'none', 1500);
                 }
-            }
-
-            window.changeEpisode = function(url, type) { 
-                const container = document.getElementById('video-player'); 
-                const cover = document.getElementById('video-cover');
-                const loader = document.getElementById('video-player-loader');
                 
-                cover.style.display = 'none';
-                loader.style.display = 'flex'; 
-                
-                if(type==='embed'||url.includes('<iframe')){ 
-                    container.innerHTML=url.includes('<iframe')?url:'<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'; 
-                    setTimeout(() => loader.style.display = 'none', 1500);
-                } else { 
-                    container.innerHTML='<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>'; 
-                    const video = container.querySelector('video');
-                    video.addEventListener('loadeddata', () => loader.style.display = 'none');
-                    video.addEventListener('waiting', () => loader.style.display = 'flex');
-                    video.addEventListener('playing', () => loader.style.display = 'none');
-                } 
-                container.style.display='block'; 
-                window.scrollTo({top:0,behavior:'smooth'}); 
+                window.scrollTo({top:0, behavior:'smooth'});
             }
             
             window.filterMovies = function(val) { document.querySelectorAll('.movie-item').forEach(i => i.style.display=i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase())?'flex':'none'); }
@@ -229,13 +213,12 @@ app.get("/", async (c) => {
                  <input name="q" placeholder="Search movies..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none" />
              </form>
         </div>
-      {sliderMovies.length > 0 && (<div class="slider-container">{sliderMovies.map((m, idx) => (<div class={`slide ${idx === 0 ? 'active' : ''}`}><img src={m.coverUrl} /><div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div><div class="absolute bottom-4 left-4 right-4"><span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span><h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1><button onclick={`injectVideo('video-player-${m.id}', '<video controls autoplay class="w-full h-full"><source src="${m.streamUrl}" type="video/mp4"></video>')`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</button></div></div>))}</div>)}
+      {sliderMovies.length > 0 && (<div class="slider-container">{sliderMovies.map((m, idx) => (<div class={`slide ${idx === 0 ? 'active' : ''}`}><img src={m.coverUrl} /><div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30"></div><div class="absolute bottom-4 left-4 right-4"><span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span><h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1><button onclick={`loadPlayer('/movie/${m.id}', 'direct')`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</button></div></div>))}</div>)}
       <div class="px-3 py-6 space-y-8">{sections.map(cat => { const catMovies = allMovies.filter(m => m.category === cat).slice(0, 8); if (catMovies.length === 0) return null; return (<div><div class="flex justify-between items-end mb-3 px-1"><h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2><a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a></div><div class="h-scroll-section custom-scroll">{catMovies.map(m => (<a href={`/movie/${m.id}`} class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden active:scale-95 transition-transform"><img src={m.posterUrl} /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white leading-tight">{m.title}</h3></div></a>))}</div></div>)})}</div>
     </Layout>
   );
 });
 
-// JSON API
 app.get("/api/list", async (c) => {
     const cat = c.req.query("cat") || "Movies";
     const page = parseInt(c.req.query("page") || "1");
@@ -247,7 +230,6 @@ app.get("/api/list", async (c) => {
     return c.json({ movies });
 });
 
-// Category
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -286,7 +268,7 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & DOWNLOAD LOGIC
+// 6. STREAM & DOWNLOAD
 // =======================
 
 app.get("/stream/:token", async (c) => {
@@ -317,18 +299,18 @@ app.get("/movie/:id", async (c) => {
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
 
-    let videoHtml = "";
+    let playerUrl = "";
     let secureDownloadUrl = "";
 
     if (premium) {
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
-            videoHtml = initialStreamUrl.includes("<iframe") ? initialStreamUrl : `<iframe src="${initialStreamUrl}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`;
+            playerUrl = initialStreamUrl;
         } else {
             let realUrl = initialStreamUrl;
             if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
-            videoHtml = `<video controls class="w-full h-full" autoplay preload="metadata"><source src="/stream/${token}" type="video/mp4"></video>`;
+            playerUrl = `/stream/${token}`;
         }
 
         if (movie.downloadUrl) {
@@ -345,8 +327,11 @@ app.get("/movie/:id", async (c) => {
            <div class="w-full aspect-video bg-black relative shadow-lg group">
               {premium ? (
                   <>
-                    <div id="video-cover" class="absolute inset-0 z-20">
+                    <div id="video-cover" class="absolute inset-0 z-20 cursor-pointer" onclick={`loadPlayer('${playerUrl}', '${movie.linkType}')`}>
                         <img src={displayImage} class="w-full h-full object-cover opacity-50" />
+                        <div class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
+                            {/* Play Icon is now on the button below, but clicking cover also works */}
+                        </div>
                     </div>
                     <div id="video-player-loader" class="video-loader"><div class="spinner"></div></div>
                     <div id="video-player" class="w-full h-full hidden"></div>
@@ -379,11 +364,12 @@ app.get("/movie/:id", async (c) => {
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
 
-               {/* ACTION BUTTONS */}
+               {/* ACTION BUTTONS (PLAY BUTTON FIXED) */}
                {premium && (
                    <div class="flex gap-3 mb-6">
+                        {/* Play Button - Now uses valid JS function call */}
                         {movie.category !== "Series" && (
-                            <button onclick={`injectVideo('video-player', \`${videoHtml.replace(/`/g, '\\`')}\`)`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
+                            <button onclick={`loadPlayer('${playerUrl}', '${movie.linkType}')`} class="flex-1 bg-white text-black font-bold py-3 rounded flex items-center justify-center gap-2 active:scale-95 transition">
                                 <i class="fa-solid fa-play"></i> Play Movie
                             </button>
                         )}
@@ -402,7 +388,7 @@ app.get("/movie/:id", async (c) => {
                        <h3 class="font-bold text-gray-300 mb-2">Episodes</h3>
                        <div class="grid grid-cols-3 md:grid-cols-4 gap-2 max-h-60 overflow-y-auto custom-scroll">
                            {episodes.map(ep => (
-                               <button onclick={`changeEpisode('${ep.url}', '${movie.linkType}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-3 px-1 rounded truncate text-center border border-zinc-700 transition-colors">
+                               <button onclick={`loadPlayer('${ep.url}', '${movie.linkType}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-3 px-1 rounded truncate text-center border border-zinc-700 transition-colors">
                                    {ep.name}
                                </button>
                            ))}
