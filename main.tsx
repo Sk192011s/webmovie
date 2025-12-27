@@ -103,10 +103,24 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         #page-loader.active { pointer-events: all; opacity: 1; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* SLIDER FIX HERE */
         .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
-        .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; }
-        .slide.active { opacity: 1; }
+        .slide { 
+            position: absolute; 
+            inset: 0; 
+            opacity: 0; 
+            transition: opacity 1s ease-in-out; 
+            pointer-events: none; /* Disable clicks on hidden slides */
+            z-index: 0;
+        }
+        .slide.active { 
+            opacity: 1; 
+            pointer-events: auto; /* Enable clicks only on active slide */
+            z-index: 10;
+        }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
+        
         .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
         .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
         .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
@@ -121,12 +135,10 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             const loader = document.getElementById('page-loader');
             
-            // Prevent Right Click
             document.addEventListener('contextmenu', e => { 
                 if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
             });
             
-            // GLOBAL LINK LOADER
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
@@ -149,7 +161,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
 
-            // Share Function
             window.shareMovie = function(title) {
                 if (navigator.share) {
                     navigator.share({ title: title, text: 'Watch ' + title + ' on Gold Flix', url: window.location.href });
@@ -158,8 +169,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }
             }
 
-            // Player Loader (REMOVED SAVE PROGRESS)
-            window.loadPlayer = function(url, type) {
+            window.loadPlayer = function(url, type, movieId, title, poster) {
                 const container = document.getElementById('video-player');
                 const cover = document.getElementById('video-cover');
                 const loader = document.getElementById('video-player-loader');
@@ -288,7 +298,7 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
-                         {/* Play Button - Correct Link to Movie Page */}
+                         {/* FIX: Play Button is now a proper Link */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
@@ -499,7 +509,7 @@ app.get("/movie/:id", async (c) => {
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
 
-               {/* BUTTONS */}
+               {/* BUTTONS WITH SHARE ADDED */}
                {premium && (
                    <div class="flex gap-2 mb-6 overflow-x-auto">
                         {movie.category !== "Series" && (
