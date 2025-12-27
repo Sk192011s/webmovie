@@ -49,7 +49,7 @@ async function getRequests() { const iter = kv.list<UserRequest>({ prefix: ["req
 async function getConfig() { const res = await kv.get<AppConfig>(["config"]); return res.value || { announcement: "Welcome to Gold Flix!", showAnnouncement: true }; }
 
 // =======================
-// 3. MIDDLEWARE
+// 3. MIDDLEWARE & RESOLVER
 // =======================
 async function getCurrentUser(c: any) {
   const authCookie = getCookie(c, "auth_session");
@@ -64,8 +64,23 @@ function isPremium(user: User | null) {
   if (!user || !user.expiryDate) return false;
   return new Date(user.expiryDate) > new Date();
 }
+
+// *** IMPROVED REDIRECT RESOLVER ***
 async function resolveRedirect(url: string) {
-  try { const res = await fetch(url, { method: "HEAD", redirect: "follow" }); return res.url; } catch { return url; }
+  try {
+    // We use GET with a range header to act like a video player request
+    // preventing download of the whole file, just getting the final URL
+    const res = await fetch(url, { 
+        method: "GET", 
+        redirect: "follow",
+        headers: { "Range": "bytes=0-10" } // Only peek the first few bytes
+    });
+    // If the URL changed, return the new one. If not, return original.
+    return res.url || url;
+  } catch (e) {
+    console.error("Resolve Error:", e);
+    return url; // Fallback to original if check fails
+  }
 }
 
 // =======================
@@ -133,6 +148,16 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             loadContinueWatching();
 
+            // SHARE FUNCTION
+            window.shareMovie = function(title) {
+                if (navigator.share) {
+                    navigator.share({ title: title, text: 'Watch ' + title + ' on Gold Flix', url: window.location.href });
+                } else {
+                    const el = document.createElement('textarea'); el.value = window.location.href; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el); showToast('Link Copied!', 'success');
+                }
+            }
+
+            // PLAYER LOADER
             window.loadPlayer = function(url, type, movieId, title, poster) {
                 saveProgress(movieId, title, poster);
                 const container = document.getElementById('video-player');
@@ -158,24 +183,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }
                 window.scrollTo({top:0, behavior:'smooth'});
             }
-
-            // --- SHARE FUNCTION ---
-            window.shareMovie = function(title) {
-                if (navigator.share) {
-                    navigator.share({ title: title, text: 'Watch ' + title + ' on Gold Flix', url: window.location.href });
-                } else {
-                    // Fallback to Clipboard
-                    const el = document.createElement('textarea');
-                    el.value = window.location.href;
-                    document.body.appendChild(el);
-                    el.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(el);
-                    showToast('Link Copied to Clipboard!', 'success');
-                }
-            }
-            
-            window.filterMovies = function(val) { document.querySelectorAll('.movie-item').forEach(i => i.style.display=i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase())?'flex':'none'); }
         });
 
         function saveProgress(id, title, poster) {
@@ -234,7 +241,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         </nav>
       )}
 
-      {/* ANNOUNCEMENT BANNER */}
       {props.announcement && (
           <div class="sticky top-[53px] z-30 bg-yellow-500 text-black text-xs font-bold px-4 py-2 flex items-center gap-2 overflow-hidden shadow-md">
               <i class="fa-solid fa-bullhorn animate-pulse"></i>
@@ -296,14 +302,13 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
-                         <button onclick={`loadPlayer('/movie/${m.id}', 'direct', '${m.id}', '${m.title}', '${m.posterUrl}')`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</button>
+                         <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
              ))}
         </div>
       )}
 
-      {/* CONTINUE WATCHING SECTION */}
       <div id="continue-watching-section" class="px-3 pt-6">
           <h2 class="text-lg font-bold text-white mb-3 flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-yellow-500"></i> Continue Watching</h2>
           <div id="continue-watching-list" class="h-scroll-section custom-scroll"></div>
@@ -335,7 +340,6 @@ app.get("/", async (c) => {
   );
 });
 
-// JSON API
 app.get("/api/list", async (c) => {
     const cat = c.req.query("cat") || "Movies";
     const page = parseInt(c.req.query("page") || "1");
@@ -347,7 +351,6 @@ app.get("/api/list", async (c) => {
     return c.json({ movies });
 });
 
-// Category Page
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -415,7 +418,7 @@ app.post("/api/fav", async (c) => {
 });
 
 // =======================
-// 6. STREAM & DOWNLOAD
+// 6. STREAM & DOWNLOAD LOGIC
 // =======================
 
 app.get("/stream/:token", async (c) => {
@@ -474,6 +477,7 @@ app.get("/movie/:id", async (c) => {
     return c.html(
       <Layout user={user} title={movie.title} announcement={config.showAnnouncement ? config.announcement : undefined}>
         <div class="max-w-4xl mx-auto">
+           {/* VIDEO CONTAINER */}
            <div class="w-full aspect-video bg-black relative shadow-lg group">
               {premium ? (
                   <>
@@ -530,6 +534,7 @@ app.get("/movie/:id", async (c) => {
                    </div>
                )}
 
+               {/* SERIES EPISODES */}
                {movie.category === "Series" && episodes.length > 0 && premium && (
                    <div class="mb-6">
                        <h3 class="font-bold text-gray-300 mb-2">Episodes</h3>
@@ -545,6 +550,7 @@ app.get("/movie/:id", async (c) => {
 
                <p class="text-sm text-gray-300 leading-relaxed mb-8">{movie.description}</p>
 
+               {/* RELATED MOVIES */}
                {related.length > 0 && (
                    <div class="pt-4 border-t border-zinc-800">
                        <h3 class="font-bold text-white mb-4">You May Also Like</h3>
@@ -565,7 +571,7 @@ app.get("/movie/:id", async (c) => {
 });
 
 // =======================
-// 7. AUTH & 8. ADMIN (SAME AS BEFORE)
+// 7. AUTH & 8. ADMIN
 // =======================
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><label class="flex items-center text-gray-400 text-xs"><input type="checkbox" name="remember" class="mr-2 accent-red-600" /> Remember Me (7 Days)</label><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
 app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body["username"] as string); const hashedInput = await hashPassword(body["password"] as string); if (user && user.passwordHash === hashedInput) { const sessionId = crypto.randomUUID(); user.sessionId = sessionId; await kv.set(["users", user.username], user); const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge }); return c.redirect("/"); } return c.redirect("/login?error=Invalid Username or Password"); });
