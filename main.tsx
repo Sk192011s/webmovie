@@ -76,11 +76,12 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      {/* NO CACHE META TAGS (Important Fix) */}
+      
+      {/* FORCE NO CACHE FOR HTML */}
       <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
       <meta http-equiv="Pragma" content="no-cache" />
       <meta http-equiv="Expires" content="0" />
-      
+
       <title>{props.title || "Gold Flix"}</title>
       <link rel="manifest" href="/manifest.json" />
       <meta name="theme-color" content="#000000" />
@@ -122,7 +123,13 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
-            if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js'); }
+            // Register PWA
+            if ('serviceWorker' in navigator) { 
+                navigator.serviceWorker.register('/service-worker.js').then(reg => {
+                    // Force update service worker to fix cache issues
+                    reg.update();
+                });
+            }
             
             const loader = document.getElementById('page-loader');
             
@@ -222,6 +229,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
               <a href="/" class="hover:text-white">Home</a>
               <a href="/favorites" class="hover:text-red-500">Saved</a>
               <a href="/request" class="hover:text-yellow-500">Request</a>
+              {/* Ensure this logic works by disabling cache in Service Worker */}
               {props.user ? <a href="/profile" class="text-white">Me</a> : <a href="/login">Login</a>}
             </div>
           </div>
@@ -259,17 +267,28 @@ app.get("/manifest.json", (c) => c.json({
   ]
 }));
 
+// *** SERVICE WORKER UPDATE (Network First Strategy) ***
+// This fixes the "Login" still showing on Home issue
 app.get("/service-worker.js", (c) => c.text(`
-  self.addEventListener('install', (e) => { e.waitUntil(caches.open('goldflix-v1').then((cache) => cache.addAll(['/']))); });
-  self.addEventListener('fetch', (e) => { e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request))); });
+  self.addEventListener('install', (e) => { self.skipWaiting(); });
+  self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });
+  self.addEventListener('fetch', (e) => { 
+      // Network First strategy for HTML navigation
+      if (e.request.mode === 'navigate') {
+          e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+      } else {
+          // Cache First for assets
+          e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request))); 
+      }
+  });
 `, 200, { "Content-Type": "application/javascript" }));
 
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
-  // CACHE BUSTING: Force browser to re-check content for Home Page
+  // Server-Side: Explicitly tell browser not to cache the HTML of Home Page
   c.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  c.header('Expires', '-1');
   c.header('Pragma', 'no-cache');
-  c.header('Expires', '0');
 
   const allMovies = await getMovies();
   const config = await getConfig();
@@ -294,7 +313,6 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
-                         {/* FIX: Direct Link to Detail Page */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
