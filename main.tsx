@@ -76,8 +76,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      
-      {/* FORCE NO CACHE FOR HTML */}
       <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
       <meta http-equiv="Pragma" content="no-cache" />
       <meta http-equiv="Expires" content="0" />
@@ -123,19 +121,10 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
-            // Register PWA
-            if ('serviceWorker' in navigator) { 
-                navigator.serviceWorker.register('/service-worker.js').then(reg => {
-                    // Force update service worker to fix cache issues
-                    reg.update();
-                });
-            }
+            if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update()); }
             
             const loader = document.getElementById('page-loader');
-            
-            document.addEventListener('contextmenu', e => { 
-                if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
-            });
+            document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
             
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
@@ -167,21 +156,38 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }
             }
 
-            window.loadPlayer = function(url, type, movieId, title, poster) {
+            // --- FAST PLAYER LOADER (FETCH REAL URL) ---
+            window.loadPlayer = async function(content, type) {
                 const container = document.getElementById('video-player');
                 const cover = document.getElementById('video-cover');
                 const loader = document.getElementById('video-player-loader');
+                
                 if(cover) cover.style.display = 'none';
                 if(loader) loader.style.display = 'flex';
+                
+                let finalUrl = content;
+
+                // If type is 'direct' and it's a token, fetch real URL
+                if (type === 'direct') {
+                    try {
+                        const res = await fetch('/api/resolve-url?token=' + content);
+                        const data = await res.json();
+                        if (data.url) finalUrl = data.url;
+                    } catch (e) { console.error(e); }
+                }
+
                 let htmlContent = '';
-                if (type === 'embed' || url.includes('<iframe')) {
-                    htmlContent = url.includes('<iframe') ? url : '<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
+                if (type === 'embed' || finalUrl.includes('<iframe')) {
+                    htmlContent = finalUrl.includes('<iframe') ? finalUrl : '<iframe src="'+finalUrl+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
                     setTimeout(() => { if(loader) loader.style.display = 'none'; }, 2000);
                 } else {
-                    htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>';
+                    // Direct Video Injection (Browser handles buffering natively)
+                    htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+finalUrl+'" type="video/mp4"></video>';
                 }
+                
                 container.innerHTML = htmlContent;
                 container.style.display = 'block';
+                
                 const video = container.querySelector('video');
                 if(video) {
                     video.addEventListener('loadeddata', () => { if(loader) loader.style.display = 'none'; });
@@ -229,7 +235,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
               <a href="/" class="hover:text-white">Home</a>
               <a href="/favorites" class="hover:text-red-500">Saved</a>
               <a href="/request" class="hover:text-yellow-500">Request</a>
-              {/* Ensure this logic works by disabling cache in Service Worker */}
               {props.user ? <a href="/profile" class="text-white">Me</a> : <a href="/login">Login</a>}
             </div>
           </div>
@@ -267,17 +272,13 @@ app.get("/manifest.json", (c) => c.json({
   ]
 }));
 
-// *** SERVICE WORKER UPDATE (Network First Strategy) ***
-// This fixes the "Login" still showing on Home issue
 app.get("/service-worker.js", (c) => c.text(`
   self.addEventListener('install', (e) => { self.skipWaiting(); });
   self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });
   self.addEventListener('fetch', (e) => { 
-      // Network First strategy for HTML navigation
       if (e.request.mode === 'navigate') {
           e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
       } else {
-          // Cache First for assets
           e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request))); 
       }
   });
@@ -285,11 +286,9 @@ app.get("/service-worker.js", (c) => c.text(`
 
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
-  // Server-Side: Explicitly tell browser not to cache the HTML of Home Page
   c.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
   c.header('Expires', '-1');
   c.header('Pragma', 'no-cache');
-
   const allMovies = await getMovies();
   const config = await getConfig();
   const sliderMovies = allMovies.filter(m => m.coverUrl && m.coverUrl.length > 5).slice(0, 5);
@@ -356,6 +355,14 @@ app.get("/api/list", async (c) => {
     const start = (page - 1) * limit;
     const movies = filtered.slice(start, start + limit).map(m => ({ id: m.id, title: m.title, posterUrl: m.posterUrl }));
     return c.json({ movies });
+});
+
+// API TO RESOLVE URL (For Fast Playback)
+app.get("/api/resolve-url", async (c) => {
+    const token = c.req.query("token");
+    const entry = await kv.get(["stream_tokens", token]);
+    if (!entry.value) return c.json({ error: "Invalid token" }, 404);
+    return c.json({ url: entry.value });
 });
 
 // Category Page
@@ -464,6 +471,9 @@ app.get("/movie/:id", async (c) => {
     let playerUrl = "";
     let secureDownloadUrl = "";
 
+    // TOKEN FOR PLAYBACK
+    let playbackToken = "";
+
     if (premium) {
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
             playerUrl = initialStreamUrl;
@@ -473,6 +483,7 @@ app.get("/movie/:id", async (c) => {
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
             playerUrl = `/stream/${token}`;
+            playbackToken = token; // STORE TOKEN FOR JS FETCH
         }
 
         if (movie.downloadUrl) {
@@ -527,7 +538,8 @@ app.get("/movie/:id", async (c) => {
                {premium && (
                    <div class="flex gap-2 mb-6 overflow-x-auto">
                         {movie.category !== "Series" && (
-                            <button onclick={`loadPlayer('${playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap">
+                            // PASS THE TOKEN DIRECTLY IF TYPE IS DIRECT
+                            <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken : playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap">
                                 <i class="fa-solid fa-play"></i> Play
                             </button>
                         )}
