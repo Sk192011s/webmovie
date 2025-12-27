@@ -121,6 +121,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             
             const loader = document.getElementById('page-loader');
             
+            // Prevent Right Click
             document.addEventListener('contextmenu', e => { 
                 if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
             });
@@ -157,7 +158,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }
             }
 
-            // Player Loader
+            // Player Loader (REMOVED SAVE PROGRESS)
             window.loadPlayer = function(url, type) {
                 const container = document.getElementById('video-player');
                 const cover = document.getElementById('video-cover');
@@ -287,7 +288,7 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
-                         {/* FIX: Play Button is now a proper Link */}
+                         {/* Play Button - Correct Link to Movie Page */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
@@ -498,7 +499,7 @@ app.get("/movie/:id", async (c) => {
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
 
-               {/* BUTTONS WITH SHARE ADDED */}
+               {/* BUTTONS */}
                {premium && (
                    <div class="flex gap-2 mb-6 overflow-x-auto">
                         {movie.category !== "Series" && (
