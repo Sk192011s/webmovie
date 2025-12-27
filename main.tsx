@@ -49,7 +49,7 @@ async function getRequests() { const iter = kv.list<UserRequest>({ prefix: ["req
 async function getConfig() { const res = await kv.get<AppConfig>(["config"]); return res.value || { announcement: "Welcome to Gold Flix!", showAnnouncement: true }; }
 
 // =======================
-// 3. MIDDLEWARE & RESOLVER
+// 3. MIDDLEWARE
 // =======================
 async function getCurrentUser(c: any) {
   const authCookie = getCookie(c, "auth_session");
@@ -64,23 +64,8 @@ function isPremium(user: User | null) {
   if (!user || !user.expiryDate) return false;
   return new Date(user.expiryDate) > new Date();
 }
-
-// *** IMPROVED REDIRECT RESOLVER ***
 async function resolveRedirect(url: string) {
-  try {
-    // We use GET with a range header to act like a video player request
-    // preventing download of the whole file, just getting the final URL
-    const res = await fetch(url, { 
-        method: "GET", 
-        redirect: "follow",
-        headers: { "Range": "bytes=0-10" } // Only peek the first few bytes
-    });
-    // If the URL changed, return the new one. If not, return original.
-    return res.url || url;
-  } catch (e) {
-    console.error("Resolve Error:", e);
-    return url; // Fallback to original if check fails
-  }
+  try { const res = await fetch(url, { method: "HEAD", redirect: "follow" }); return res.url; } catch { return url; }
 }
 
 // =======================
@@ -133,22 +118,46 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js'); }
+            
             const loader = document.getElementById('page-loader');
-            document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
-            document.querySelectorAll('a').forEach(l => l.addEventListener('click', e => { const href=l.getAttribute('href'); if(href&&href.startsWith('/')&&!href.includes('logout')&&!href.includes('#')) loader.classList.add('active'); }));
+            
+            // Prevent Right Click
+            document.addEventListener('contextmenu', e => { 
+                if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
+            });
+            
+            // GLOBAL LINK LOADER (Fix for Dynamic Content)
+            document.addEventListener('click', (e) => {
+                const link = e.target.closest('a');
+                if (link) {
+                    const href = link.getAttribute('href');
+                    const target = link.getAttribute('target');
+                    // Check if internal link and NOT download/logout
+                    if (href && href.startsWith('/') && !href.includes('logout') && !href.includes('#') && target !== '_blank') {
+                        loader.classList.add('active');
+                    }
+                }
+            });
+            
+            // Form Submit Loader
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
+            
+            // Hide Loader on Back/Show
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
+
+            // Toast Logic
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
             
+            // Slider Logic
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
             
             loadContinueWatching();
 
-            // SHARE FUNCTION
+            // Share Function
             window.shareMovie = function(title) {
                 if (navigator.share) {
                     navigator.share({ title: title, text: 'Watch ' + title + ' on Gold Flix', url: window.location.href });
@@ -157,7 +166,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }
             }
 
-            // PLAYER LOADER
+            // Player Loader
             window.loadPlayer = function(url, type, movieId, title, poster) {
                 saveProgress(movieId, title, poster);
                 const container = document.getElementById('video-player');
@@ -183,6 +192,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 }
                 window.scrollTo({top:0, behavior:'smooth'});
             }
+            
+            window.filterMovies = function(val) { document.querySelectorAll('.movie-item').forEach(i => i.style.display=i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase())?'flex':'none'); }
         });
 
         function saveProgress(id, title, poster) {
@@ -202,6 +213,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         }
 
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
+        
+        // Infinite Scroll
         let page = 1; let isLoading = false; let hasMore = true;
         async function loadMoreMovies(category) {
             if(isLoading || !hasMore) return;
@@ -302,6 +315,7 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
+                         {/* Slider Play Button - Now a Link to Movie Page */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
@@ -309,6 +323,7 @@ app.get("/", async (c) => {
         </div>
       )}
 
+      {/* CONTINUE WATCHING SECTION */}
       <div id="continue-watching-section" class="px-3 pt-6">
           <h2 class="text-lg font-bold text-white mb-3 flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-yellow-500"></i> Continue Watching</h2>
           <div id="continue-watching-list" class="h-scroll-section custom-scroll"></div>
@@ -340,6 +355,7 @@ app.get("/", async (c) => {
   );
 });
 
+// JSON API
 app.get("/api/list", async (c) => {
     const cat = c.req.query("cat") || "Movies";
     const page = parseInt(c.req.query("page") || "1");
@@ -351,6 +367,7 @@ app.get("/api/list", async (c) => {
     return c.json({ movies });
 });
 
+// Category Page
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -571,7 +588,7 @@ app.get("/movie/:id", async (c) => {
 });
 
 // =======================
-// 7. AUTH & 8. ADMIN
+// 7. AUTH & 8. ADMIN (SAME AS BEFORE)
 // =======================
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><label class="flex items-center text-gray-400 text-xs"><input type="checkbox" name="remember" class="mr-2 accent-red-600" /> Remember Me (7 Days)</label><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
 app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body["username"] as string); const hashedInput = await hashPassword(body["password"] as string); if (user && user.passwordHash === hashedInput) { const sessionId = crypto.randomUUID(); user.sessionId = sessionId; await kv.set(["users", user.username], user); const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge }); return c.redirect("/"); } return c.redirect("/login?error=Invalid Username or Password"); });
