@@ -122,24 +122,18 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update()); }
-            
             const loader = document.getElementById('page-loader');
             document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
-            
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
                     const href = link.getAttribute('href');
                     const target = link.getAttribute('target');
-                    if (href && href.startsWith('/') && !href.includes('logout') && !href.includes('#') && target !== '_blank') {
-                        loader.classList.add('active');
-                    }
+                    if (href && href.startsWith('/') && !href.includes('logout') && !href.includes('#') && target !== '_blank') { loader.classList.add('active'); }
                 }
             });
-            
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
-
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
@@ -155,39 +149,32 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     const el = document.createElement('textarea'); el.value = window.location.href; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el); showToast('Link Copied!', 'success');
                 }
             }
+            
+            // Toggle Help
+            window.toggleHelp = function() {
+                const el = document.getElementById('download-help');
+                if (el.style.display === 'none') {
+                    el.style.display = 'block';
+                } else {
+                    el.style.display = 'none';
+                }
+            }
 
-            // --- FAST PLAYER LOADER (FETCH REAL URL) ---
-            window.loadPlayer = async function(content, type) {
+            window.loadPlayer = function(url, type, movieId, title, poster) {
                 const container = document.getElementById('video-player');
                 const cover = document.getElementById('video-cover');
                 const loader = document.getElementById('video-player-loader');
-                
                 if(cover) cover.style.display = 'none';
                 if(loader) loader.style.display = 'flex';
-                
-                let finalUrl = content;
-
-                // If type is 'direct' and it's a token, fetch real URL
-                if (type === 'direct') {
-                    try {
-                        const res = await fetch('/api/resolve-url?token=' + content);
-                        const data = await res.json();
-                        if (data.url) finalUrl = data.url;
-                    } catch (e) { console.error(e); }
-                }
-
                 let htmlContent = '';
-                if (type === 'embed' || finalUrl.includes('<iframe')) {
-                    htmlContent = finalUrl.includes('<iframe') ? finalUrl : '<iframe src="'+finalUrl+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
+                if (type === 'embed' || url.includes('<iframe')) {
+                    htmlContent = url.includes('<iframe') ? url : '<iframe src="'+url+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
                     setTimeout(() => { if(loader) loader.style.display = 'none'; }, 2000);
                 } else {
-                    // Direct Video Injection (Browser handles buffering natively)
-                    htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+finalUrl+'" type="video/mp4"></video>';
+                    htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+url+'" type="video/mp4"></video>';
                 }
-                
                 container.innerHTML = htmlContent;
                 container.style.display = 'block';
-                
                 const video = container.querySelector('video');
                 if(video) {
                     video.addEventListener('loadeddata', () => { if(loader) loader.style.display = 'none'; });
@@ -357,14 +344,6 @@ app.get("/api/list", async (c) => {
     return c.json({ movies });
 });
 
-// API TO RESOLVE URL (For Fast Playback)
-app.get("/api/resolve-url", async (c) => {
-    const token = c.req.query("token");
-    const entry = await kv.get(["stream_tokens", token]);
-    if (!entry.value) return c.json({ error: "Invalid token" }, 404);
-    return c.json({ url: entry.value });
-});
-
 // Category Page
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
@@ -471,9 +450,6 @@ app.get("/movie/:id", async (c) => {
     let playerUrl = "";
     let secureDownloadUrl = "";
 
-    // TOKEN FOR PLAYBACK
-    let playbackToken = "";
-
     if (premium) {
         if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
             playerUrl = initialStreamUrl;
@@ -483,7 +459,6 @@ app.get("/movie/:id", async (c) => {
             const token = crypto.randomUUID();
             await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
             playerUrl = `/stream/${token}`;
-            playbackToken = token; // STORE TOKEN FOR JS FETCH
         }
 
         if (movie.downloadUrl) {
@@ -534,23 +509,34 @@ app.get("/movie/:id", async (c) => {
                    <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
                </div>
 
-               {/* BUTTONS WITH SHARE ADDED */}
+               {/* BUTTONS WITH HELP TOGGLE */}
                {premium && (
-                   <div class="flex gap-2 mb-6 overflow-x-auto">
-                        {movie.category !== "Series" && (
-                            // PASS THE TOKEN DIRECTLY IF TYPE IS DIRECT
-                            <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken : playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap">
-                                <i class="fa-solid fa-play"></i> Play
+                   <div class="flex flex-col gap-2 mb-6">
+                       <div class="flex gap-2 overflow-x-auto">
+                            {movie.category !== "Series" && (
+                                <button onclick={`loadPlayer('${playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap">
+                                    <i class="fa-solid fa-play"></i> Play
+                                </button>
+                            )}
+                            {secureDownloadUrl && (
+                                <a href={secureDownloadUrl} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap">
+                                    <i class="fa-solid fa-download"></i> DL
+                                </a>
+                            )}
+                            <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700">
+                                <i class="fa-solid fa-share-nodes"></i>
                             </button>
-                        )}
-                        {secureDownloadUrl && (
-                            <a href={secureDownloadUrl} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap">
-                                <i class="fa-solid fa-download"></i> DL
-                            </a>
-                        )}
-                        <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700">
-                            <i class="fa-solid fa-share-nodes"></i> Share
-                        </button>
+                       </div>
+                       
+                       {/* DOWNLOAD HELP BUTTON & CONTENT */}
+                       <button onclick="toggleHelp()" class="text-xs text-yellow-500 hover:text-yellow-400 flex items-center gap-1 mt-2">
+                           <i class="fa-solid fa-circle-question"></i> ဒေါင်းလုဒ်လုပ်နည်း
+                       </button>
+                       <div id="download-help" class="hidden bg-zinc-900 border border-yellow-600/50 rounded-lg p-3 text-xs text-gray-300 space-y-2 mt-1">
+                           <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>'DL' ခလုတ်ကို နှိပ်ပြီး တိုက်ရိုက်ဒေါင်းနိုင်ပါသည်။</p>
+                           <hr class="border-zinc-700"/>
+                           <p><strong class="text-yellow-500">နည်းလမ်း (၂) - Video Player မှတဆင့်</strong><br/>1. Video ကို Play နှိပ်ပါ။<br/>2. Video ဖွင့်လာလျှင် ညာဘက်အောက်ထောင့်က အစက် ၃ စက် (<i class="fa-solid fa-ellipsis-vertical"></i>) ကိုနှိပ်ပါ။<br/>3. 'Download' ကို ရွေးချယ်ပါ။</p>
+                       </div>
                    </div>
                )}
 
