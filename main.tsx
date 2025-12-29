@@ -79,8 +79,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      
-      {/* NO CACHE HEADERS */}
       <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
       <meta http-equiv="Pragma" content="no-cache" />
       <meta http-equiv="Expires" content="0" />
@@ -88,7 +86,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <title>{props.title || "Gold Flix"}</title>
       <link rel="manifest" href="/manifest.json" />
       <meta name="theme-color" content="#000000" />
-
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
       <style>{`
@@ -117,9 +114,17 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; pointer-events: none; z-index: 0; }
         .slide.active { opacity: 1; pointer-events: auto; z-index: 10; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
+        
         .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        
+        /* STANDARD POSTER ITEM */
         .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
         .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
+
+        /* WIDE COVER ITEM (For Uncensored) */
+        .h-scroll-item.wide { min-width: 240px; width: 240px; }
+        .h-scroll-item.wide img { aspect-ratio: 16/9; }
+
         .video-loader { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: #000; z-index: 20; }
         .video-loader .spinner { border-color: #333; border-top-color: #E50914; }
         video::-internal-media-controls-download-button { display:block !important; }
@@ -127,17 +132,10 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
-            if ('serviceWorker' in navigator) { 
-                navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update());
-            }
+            if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update()); }
             
             const loader = document.getElementById('page-loader');
-            
-            document.addEventListener('contextmenu', e => { 
-                if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
-            });
-            
-            // GLOBAL LINK LOADER
+            document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
@@ -148,10 +146,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     }
                 }
             });
-            
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
-
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
@@ -173,7 +169,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 el.classList.toggle('hidden');
             }
             
-            // TOGGLE SEASON (Restored)
             window.toggleSeason = function(id) {
                 const el = document.getElementById('season-' + id);
                 const icon = document.getElementById('icon-' + id);
@@ -239,7 +234,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 const container = document.getElementById('movie-grid');
                 data.movies.forEach(m => {
                     const el = document.createElement('a'); el.href = '/movie/' + m.id;
-                    // Check if Uncensored for Wide Card
                     if(category === "All Uncensored") {
                          el.className = 'block bg-[#1f1f1f] rounded overflow-hidden mb-4';
                          el.innerHTML = '<img src="'+m.coverUrl+'" class="aspect-video object-cover w-full" /><div class="p-3"><h3 class="text-sm font-bold truncate text-white">'+m.title+'</h3></div>';
@@ -328,7 +322,6 @@ app.get("/service-worker.js", (c) => c.text(`
 
 app.get("/", async (c) => {
   const user = await getCurrentUser(c);
-  // NO CACHE HEADERS
   c.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
   c.header('Expires', '-1');
   c.header('Pragma', 'no-cache');
@@ -367,8 +360,8 @@ app.get("/", async (c) => {
         {sections.map(cat => {
             const catMovies = allMovies.filter(m => m.category === cat).slice(0, 8);
             if (catMovies.length === 0) return null;
-            
-            // All Uncensored Layout
+
+            // SPECIAL LAYOUT FOR "All Uncensored"
             if(cat === "All Uncensored") {
                 return (
                     <div>
@@ -448,17 +441,80 @@ app.get("/category/:cat", async (c) => {
         <div id="loading-indicator" class="text-center py-4 hidden"><i class="fa-solid fa-circle-notch fa-spin text-red-600 text-xl"></i></div></div></Layout>);
 });
 
-// Search, Request, Favorites, Auth Routes (Same structure as before)
-app.get("/search", async (c) => { const user = await getCurrentUser(c); const query = c.req.query("q")?.toLowerCase() || ""; const config = await getConfig(); const allMovies = await getMovies(); const results = allMovies.filter(m => (m.title && m.title.toLowerCase().includes(query)) || (m.tags && m.tags.toLowerCase().includes(query))); return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>); });
-app.get("/request", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const config = await getConfig(); return c.html(<Layout user={user} title="Request" announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-6 max-w-md mx-auto min-h-[70vh] flex flex-col justify-center"><h1 class="text-2xl font-bold mb-4 text-yellow-500">Request Movie</h1><p class="text-gray-400 text-sm mb-6">Can't find what you're looking for? Let us know!</p><form action="/request" method="post" class="space-y-4"><input name="movieName" placeholder="Movie Name (e.g. Iron Man)" required class="input-box" /><button class="btn-primary w-full">Submit Request</button></form></div></Layout>); });
-app.post("/request", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const { movieName } = await c.req.parseBody(); const req: UserRequest = { id: crypto.randomUUID(), username: user.username, movieName: String(movieName), timestamp: Date.now() }; await kv.set(["requests", req.id], req); return c.redirect("/request?success=Request Submitted!"); });
-app.get("/favorites", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const allMovies = await getMovies(); const favs = allMovies.filter(m => user.favorites?.includes(m.id)); return c.html(<Layout user={user} title="Saved"><div class="p-4"><h1 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-heart text-red-600"></i> My Saved Movies</h1><div class="grid grid-cols-3 gap-2">{favs.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>{favs.length===0 && <p class="text-gray-500 text-center mt-10">No saved movies.</p>}</div></Layout>); });
-app.post("/api/fav", async (c) => { const user = await getCurrentUser(c); if (!user) return c.redirect("/login"); const { movieId } = await c.req.parseBody(); const id = String(movieId); if (!user.favorites) user.favorites = []; if (user.favorites.includes(id)) user.favorites = user.favorites.filter(f => f !== id); else user.favorites.push(id); await kv.set(["users", user.username], user); return c.redirect(c.req.header("Referer") || "/"); });
+app.get("/search", async (c) => {
+    const user = await getCurrentUser(c);
+    const query = c.req.query("q")?.toLowerCase() || "";
+    const config = await getConfig();
+    const allMovies = await getMovies();
+    const results = allMovies.filter(m => (m.title && m.title.toLowerCase().includes(query)) || (m.tags && m.tags.toLowerCase().includes(query)));
+    return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>);
+});
 
-app.get("/stream/:token", async (c) => { const token = c.req.param("token"); const entry = await kv.get(["stream_tokens", token]); if (!entry.value) return c.text("Link Expired or Invalid", 403); return c.redirect(entry.value as string); });
-app.get("/dl/:token", async (c) => { const token = c.req.param("token"); const entry = await kv.get(["stream_tokens", token]); if (!entry.value) return c.text("Download Link Expired", 403); return c.redirect(entry.value as string); });
+app.get("/request", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const config = await getConfig();
+    return c.html(
+        <Layout user={user} title="Request" announcement={config.showAnnouncement ? config.announcement : undefined}>
+            <div class="p-6 max-w-md mx-auto min-h-[70vh] flex flex-col justify-center">
+                <h1 class="text-2xl font-bold mb-4 text-yellow-500">Request Movie</h1>
+                <p class="text-gray-400 text-sm mb-6">Can't find what you're looking for? Let us know!</p>
+                <form action="/request" method="post" class="space-y-4">
+                    <input name="movieName" placeholder="Movie Name (e.g. Iron Man)" required class="input-box" />
+                    <button class="btn-primary w-full">Submit Request</button>
+                </form>
+            </div>
+        </Layout>
+    );
+});
 
-// MOVIE DETAIL (RESTORED SEASON GROUPING)
+app.post("/request", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const { movieName } = await c.req.parseBody();
+    const req: UserRequest = { id: crypto.randomUUID(), username: user.username, movieName: String(movieName), timestamp: Date.now() };
+    await kv.set(["requests", req.id], req);
+    return c.redirect("/request?success=Request Submitted!");
+});
+
+app.get("/favorites", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const allMovies = await getMovies();
+    const favs = allMovies.filter(m => user.favorites?.includes(m.id));
+    return c.html(<Layout user={user} title="Saved"><div class="p-4"><h1 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-heart text-red-600"></i> My Saved Movies</h1><div class="grid grid-cols-3 gap-2">{favs.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>{favs.length===0 && <p class="text-gray-500 text-center mt-10">No saved movies.</p>}</div></Layout>);
+});
+
+app.post("/api/fav", async (c) => {
+    const user = await getCurrentUser(c);
+    if (!user) return c.redirect("/login");
+    const { movieId } = await c.req.parseBody();
+    const id = String(movieId);
+    if (!user.favorites) user.favorites = [];
+    if (user.favorites.includes(id)) user.favorites = user.favorites.filter(f => f !== id);
+    else user.favorites.push(id);
+    await kv.set(["users", user.username], user);
+    return c.redirect(c.req.header("Referer") || "/");
+});
+
+// =======================
+// 6. STREAM & DOWNLOAD LOGIC
+// =======================
+
+app.get("/stream/:token", async (c) => {
+    const token = c.req.param("token");
+    const entry = await kv.get(["stream_tokens", token]);
+    if (!entry.value) return c.text("Link Expired or Invalid", 403);
+    return c.redirect(entry.value as string);
+});
+
+app.get("/dl/:token", async (c) => {
+    const token = c.req.param("token");
+    const entry = await kv.get(["stream_tokens", token]);
+    if (!entry.value) return c.text("Download Link Expired", 403);
+    return c.redirect(entry.value as string);
+});
+
 app.get("/movie/:id", async (c) => {
     const id = c.req.param("id");
     const movie = await getMovie(id);
@@ -469,6 +525,7 @@ app.get("/movie/:id", async (c) => {
     const premium = isPremium(user);
     const isFav = user?.favorites?.includes(id);
     const displayImage = movie.coverUrl || movie.posterUrl; 
+
     const allMovies = await getMovies();
     const related = allMovies.filter(m => m.category === movie.category && m.id !== movie.id).slice(0, 6);
 
@@ -584,7 +641,7 @@ app.get("/movie/:id", async (c) => {
                                 </button>
                             )}
                             <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700">
-                                <i class="fa-solid fa-share-nodes"></i>
+                                <i class="fa-solid fa-share-nodes"></i> Share
                             </button>
                         </div>
                         <div class="flex gap-2">
@@ -599,7 +656,7 @@ app.get("/movie/:id", async (c) => {
                                 </a>
                              )}
                         </div>
-                        <button onclick="toggleHelp()" class="text-xs text-yellow-500 hover:text-yellow-400 flex items-center gap-1 mt-2"><i class="fa-solid fa-circle-question"></i> ဒေါင်းလုဒ်လုပ်နည်း</button>
+                       <button onclick="toggleHelp()" class="text-xs text-yellow-500 hover:text-yellow-400 flex items-center gap-1 mt-2"><i class="fa-solid fa-circle-question"></i> ဒေါင်းလုဒ်လုပ်နည်း</button>
                        <div id="download-help" class="hidden bg-zinc-900 border border-yellow-600/50 rounded-lg p-3 text-xs text-gray-300 space-y-2 mt-1">
                            <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>Download (သို့) DL ခလုတ်ပါလျှင် နှိပ်၍ ဒေါင်းပါ။ မပါလျှင် Video Play ပြီးမှ ဒေါင်းပါ။</p>
                            <hr class="border-zinc-700"/>
@@ -608,7 +665,7 @@ app.get("/movie/:id", async (c) => {
                    </div>
                )}
 
-               {/* SERIES EPISODES ACCORDION */}
+               {/* SERIES EPISODES */}
                {movie.category === "Series" && episodes.length > 0 && premium && (
                    <div class="mb-6 space-y-2">
                        {ungrouped.length > 0 && (
@@ -653,7 +710,7 @@ app.get("/movie/:id", async (c) => {
     );
 });
 
-// AUTH + ADMIN ROUTES (UNCHANGED)
+// Admin, Login, Signup... (Same as before)
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><label class="flex items-center text-gray-400 text-xs"><input type="checkbox" name="remember" class="mr-2 accent-red-600" /> Remember Me (7 Days)</label><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
 app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body["username"] as string); const hashedInput = await hashPassword(body["password"] as string); if (user && user.passwordHash === hashedInput) { const sessionId = crypto.randomUUID(); user.sessionId = sessionId; await kv.set(["users", user.username], user); const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge }); return c.redirect("/"); } return c.redirect("/login?error=Invalid Username or Password"); });
 app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Create Account</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Sign Up</button><p class="text-xs text-gray-500 text-center mt-4">Has account? <a href="/login" class="text-white font-bold">Login</a></p></form></div></div></Layout>));
@@ -664,7 +721,34 @@ app.get("/logout", (c) => { deleteCookie(c, "auth_session"); return c.redirect("
 const adminAuth = async (c: any, next: any) => { const session = getCookie(c, "admin_session"); if (session === Deno.env.get("ADMIN_PASSWORD")) await next(); else return c.redirect("/admin"); };
 app.get("/admin", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black"><form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80"><h2 class="font-bold text-center mb-4">Admin Login</h2><input type="password" name="password" placeholder="Key" class="input-box mb-4" /><button class="btn-primary w-full">Enter</button></form></div></Layout>));
 app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
-app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => { if(e.season) return `${e.season} | ${e.name} | ${e.url}`; return `${e.name} | ${e.url}`; }).join('\n') || ""; return c.html(<Layout title="Admin"><div class="p-4 bg-zinc-900 min-h-screen"><div class="flex justify-between items-center mb-6"><h1 class="font-bold text-red-600">Admin Panel</h1><div class="flex gap-2"><a href="/" class="text-xs bg-black px-3 py-1 rounded">App</a><a href="/admin/backup" class="bg-blue-600 text-white px-3 py-1 rounded text-xs">Backup</a><form action="/admin/restore" method="post" enctype="multipart/form-data" class="inline"><label class="bg-green-600 text-white px-3 py-1 rounded text-xs cursor-pointer">Restore<input type="file" name="file" class="hidden" onchange="this.form.submit()" /></label></form></div></div><div class="grid lg:grid-cols-2 gap-6"><div class="space-y-6"><div class="bg-[#1f1f1f] p-4 rounded border border-yellow-600"><h2 class="font-bold mb-2 text-sm text-yellow-500">Announcement Bar</h2><form action="/admin/config" method="post" class="flex gap-2"><input name="text" placeholder="Message..." value={config.announcement} class="input-box flex-grow" /><label class="flex items-center text-xs"><input type="checkbox" name="show" checked={config.showAnnouncement} class="mr-1" /> Show</label><button class="btn-primary py-1 px-3">Set</button></form></div><div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4"><h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2><form action="/admin/movie/save" method="post" class="space-y-2 text-sm"><input type="hidden" name="id" value={editMovie?.id || crypto.randomUUID()} /><input type="hidden" name="createdAt" value={editMovie?.createdAt || Date.now()} /><input name="title" placeholder="Title" value={editMovie?.title} required class="input-box" /><div class="flex gap-2"><select name="category" class="input-box">{["Movies","Series","Adult","All Uncensored"].map(o => <option selected={editMovie?.category===o}>{o}</option>)}</select><input name="year" value={editMovie?.year || "2025"} class="input-box w-20" /></div><input name="posterUrl" placeholder="Poster URL" value={editMovie?.posterUrl} required class="input-box" /><input name="coverUrl" placeholder="Cover URL" value={editMovie?.coverUrl} required class="input-box border-yellow-500/50" /><div class="p-2 bg-black rounded border border-zinc-800"><select name="linkType" class="input-box mb-2 text-xs"><option value="direct" selected={editMovie?.linkType==="direct"}>Direct Link (Auto-Resolve)</option><option value="embed" selected={editMovie?.linkType==="embed"}>Embed Code / Iframe</option></select><input name="streamUrl" placeholder="Movie URL (Ep1)" value={editMovie?.streamUrl} class="input-box" /></div><div class="p-2 bg-black rounded border border-zinc-800"><label class="text-xs text-yellow-500 mb-1 block">Series Episodes (Season | Ep | URL)</label><textarea name="episodeList" placeholder="S1 Ep1 | https://...&#10;S1 Ep2 | https://..." rows={5} class="input-box font-mono text-xs whitespace-nowrap overflow-x-auto">{epString}</textarea></div><div class="grid grid-cols-2 gap-2"><input name="downloadUrl" placeholder="Download Link 1" value={editMovie?.downloadUrl} class="input-box text-xs border-green-900/50 focus:border-green-500" /><input name="downloadUrl2" placeholder="Download Link 2" value={editMovie?.downloadUrl2} class="input-box text-xs border-green-900/50 focus:border-green-500" /></div><div class="p-2 bg-black rounded border border-zinc-800"><label class="text-xs text-gray-500">Server 2 (Optional)</label><input name="streamUrl2" placeholder="Stream URL 2" value={editMovie?.streamUrl2} class="input-box mt-2" /></div><textarea name="description" placeholder="Desc" class="input-box">{editMovie?.description}</textarea><button class="btn-primary w-full">{editMovie ? "Update" : "Save"}</button>{editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel</a>}</form></div></div><div class="space-y-6"><div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700"><h2 class="font-bold mb-3 text-sm">VIP Keys</h2><form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form><div class="mt-2 max-h-32 overflow-y-auto custom-scroll">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div></div><div class="bg-[#1f1f1f] p-4 rounded border border-blue-900/50"><h2 class="font-bold mb-2 text-sm text-blue-400">User Requests</h2><div class="max-h-40 overflow-y-auto custom-scroll space-y-2">{requests.map(r => (<div class="bg-black p-2 rounded text-xs flex justify-between"><div><span class="text-yellow-500 font-bold">{r.movieName}</span> <span class="text-gray-500">by {r.username}</span></div><form action={`/admin/request/delete/${r.id}`} method="post"><button class="text-red-500">x</button></form></div>))}{requests.length === 0 && <p class="text-gray-600 text-xs">No requests.</p>}</div></div><div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 flex flex-col h-[500px]"><div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div><div class="space-y-2 flex-1 overflow-y-auto pr-2 custom-scroll">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div></div></div></div></div></Layout>); });
+app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
+        if(e.season) return `${e.season} | ${e.name} | ${e.url}`;
+        return `${e.name} | ${e.url}`;
+    }).join('\n') || "";
+
+    return c.html(
+        <Layout title="Admin">
+            <div class="p-4 bg-zinc-900 min-h-screen">
+                <div class="flex justify-between items-center mb-6"><h1 class="font-bold text-red-600">Admin Panel</h1><div class="flex gap-2"><a href="/" class="text-xs bg-black px-3 py-1 rounded">App</a><a href="/admin/backup" class="bg-blue-600 text-white px-3 py-1 rounded text-xs">Backup</a><form action="/admin/restore" method="post" enctype="multipart/form-data" class="inline"><label class="bg-green-600 text-white px-3 py-1 rounded text-xs cursor-pointer">Restore<input type="file" name="file" class="hidden" onchange="this.form.submit()" /></label></form></div></div>
+                <div class="grid lg:grid-cols-2 gap-6">
+                    {/* LEFT: MOVIE FORM + ANNOUNCEMENT */}
+                    <div class="space-y-6">
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-yellow-600"><h2 class="font-bold mb-2 text-sm text-yellow-500">Announcement Bar</h2><form action="/admin/config" method="post" class="flex gap-2"><input name="text" placeholder="Message..." value={config.announcement} class="input-box flex-grow" /><label class="flex items-center text-xs"><input type="checkbox" name="show" checked={config.showAnnouncement} class="mr-1" /> Show</label><button class="btn-primary py-1 px-3">Set</button></form></div>
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4"><h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2><form action="/admin/movie/save" method="post" class="space-y-2 text-sm"><input type="hidden" name="id" value={editMovie?.id || crypto.randomUUID()} /><input type="hidden" name="createdAt" value={editMovie?.createdAt || Date.now()} /><input name="title" placeholder="Title" value={editMovie?.title} required class="input-box" /><div class="flex gap-2"><select name="category" class="input-box">{["Movies","Series","Adult","All Uncensored"].map(o => <option selected={editMovie?.category===o}>{o}</option>)}</select><input name="year" value={editMovie?.year || "2025"} class="input-box w-20" /></div><input name="posterUrl" placeholder="Poster URL" value={editMovie?.posterUrl} required class="input-box" /><input name="coverUrl" placeholder="Cover URL" value={editMovie?.coverUrl} required class="input-box border-yellow-500/50" /><div class="p-2 bg-black rounded border border-zinc-800"><select name="linkType" class="input-box mb-2 text-xs"><option value="direct" selected={editMovie?.linkType==="direct"}>Direct Link (Auto-Resolve)</option><option value="embed" selected={editMovie?.linkType==="embed"}>Embed Code / Iframe</option></select><input name="streamUrl" placeholder="Movie URL (Ep1)" value={editMovie?.streamUrl} class="input-box" /></div><div class="p-2 bg-black rounded border border-zinc-800"><label class="text-xs text-yellow-500 mb-1 block">Series Episodes (Season | Ep | URL)</label><textarea name="episodeList" placeholder="S1 Ep1 | https://...&#10;S1 Ep2 | https://..." rows={5} class="input-box font-mono text-xs whitespace-nowrap overflow-x-auto">{epString}</textarea></div><div class="grid grid-cols-2 gap-2"><input name="downloadUrl" placeholder="Download Link 1" value={editMovie?.downloadUrl} class="input-box text-xs border-green-900/50 focus:border-green-500" /><input name="downloadUrl2" placeholder="Download Link 2" value={editMovie?.downloadUrl2} class="input-box text-xs border-green-900/50 focus:border-green-500" /></div><div class="p-2 bg-black rounded border border-zinc-800"><label class="text-xs text-gray-500">Server 2 (Optional)</label><input name="streamUrl2" placeholder="Stream URL 2" value={editMovie?.streamUrl2} class="input-box mt-2" /></div><textarea name="description" placeholder="Desc" class="input-box">{editMovie?.description}</textarea><button class="btn-primary w-full">{editMovie ? "Update" : "Save"}</button>{editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel</a>}</form></div>
+                    </div>
+                    {/* RIGHT: KEYS, REQUESTS, LIST */}
+                    <div class="space-y-6">
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700"><h2 class="font-bold mb-3 text-sm">VIP Keys</h2><form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form><div class="mt-2 max-h-32 overflow-y-auto custom-scroll">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div></div>
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-blue-900/50"><h2 class="font-bold mb-2 text-sm text-blue-400">User Requests</h2><div class="max-h-40 overflow-y-auto custom-scroll space-y-2">{requests.map(r => (<div class="bg-black p-2 rounded text-xs flex justify-between"><div><span class="text-yellow-500 font-bold">{r.movieName}</span> <span class="text-gray-500">by {r.username}</span></div><form action={`/admin/request/delete/${r.id}`} method="post"><button class="text-red-500">x</button></form></div>))}{requests.length === 0 && <p class="text-gray-600 text-xs">No requests.</p>}</div></div>
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 flex flex-col h-[500px]"><div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div><div class="space-y-2 flex-1 overflow-y-auto pr-2 custom-scroll">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div></div>
+                    </div>
+                </div>
+            </div>
+        </Layout>
+    );
+});
+
+// Admin Actions
 app.post("/admin/config", adminAuth, async (c) => { const body = await c.req.parseBody(); await kv.set(["config"], { announcement: body['text'], showAnnouncement: body['show'] === 'on' }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/request/delete/:id", adminAuth, async (c) => { await kv.delete(["requests", c.req.param("id")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/movie/save", adminAuth, async (c) => { 
