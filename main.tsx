@@ -30,13 +30,13 @@ interface Movie {
   createdAt: number;
 }
 interface User {
-  username: string; passwordHash: string; expiryDate: string | null; 
-  favorites: string[]; sessionId?: string; ip?: string; // Added IP tracking
+  username: string; passwordHash: string; expiryDate: string | null; favorites: string[]; sessionId?: string;
 }
 interface VipKey { code: string; days: number; }
 interface UserRequest { id: string; username: string; movieName: string; timestamp: number; }
 interface AppConfig { announcement: string; showAnnouncement: boolean; }
 interface BannedIP { ip: string; reason: string; }
+interface LoginLog { username: string; ip: string; timestamp: number; } // NEW
 
 // =======================
 // 2. DB FUNCTIONS
@@ -53,14 +53,23 @@ async function getKeys() { const iter = kv.list<VipKey>({ prefix: ["keys"] }); c
 async function getRequests() { const iter = kv.list<UserRequest>({ prefix: ["requests"] }); const reqs = []; for await (const res of iter) reqs.push(res.value); return reqs.sort((a,b)=>b.timestamp-a.timestamp); }
 async function getConfig() { const res = await kv.get<AppConfig>(["config"]); return res.value || { announcement: "Welcome to Gold Flix!", showAnnouncement: true }; }
 async function getBannedIPs() { const iter = kv.list<BannedIP>({ prefix: ["banned_ips"] }); const ips = []; for await (const res of iter) ips.push(res.value); return ips; }
+// NEW: Get Recent Logins
+async function getRecentLogins() { 
+    const iter = kv.list<LoginLog>({ prefix: ["login_logs"] }, { limit: 20, reverse: true }); 
+    const logs = []; for await (const res of iter) logs.push(res.value); return logs; 
+}
+// NEW: Add Login Log
+async function addLoginLog(username: string, ip: string) {
+    await kv.set(["login_logs", Date.now()], { username, ip, timestamp: Date.now() }, { expireIn: 86400 * 3 }); // Keep logs for 3 days
+}
 
 // =======================
 // 3. MIDDLEWARE
 // =======================
 async function checkIP(c: any) {
-    const ip = c.req.header('x-forwarded-for') || "unknown";
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0] || "unknown";
     const banned = await kv.get(["banned_ips", ip]);
-    if (banned.value) return true; // IP IS BANNED
+    if (banned.value) return true; 
     return false;
 }
 
@@ -156,7 +165,14 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
-            window.shareMovie = function(title) { if (navigator.share) { navigator.share({ title: title, text: 'Watch ' + title + ' on Gold Flix', url: window.location.href }); } else { const el = document.createElement('textarea'); el.value = window.location.href; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el); showToast('Link Copied!', 'success'); } }
+
+            window.shareMovie = function(title) {
+                if (navigator.share) {
+                    navigator.share({ title: title, text: 'Watch ' + title + ' on Gold Flix', url: window.location.href });
+                } else {
+                    const el = document.createElement('textarea'); el.value = window.location.href; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el); showToast('Link Copied!', 'success');
+                }
+            }
             window.toggleHelp = function() { document.getElementById('download-help').classList.toggle('hidden'); }
             window.toggleSeason = function(id) { const el = document.getElementById('season-' + id); const icon = document.getElementById('icon-' + id); if(el) { el.classList.toggle('hidden'); if(icon) icon.classList.toggle('rotate-180'); } }
             window.loadPlayer = async function(content, type, movieId, title, poster) {
@@ -190,13 +206,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 const container = document.getElementById('movie-grid');
                 data.movies.forEach(m => {
                     const el = document.createElement('a'); el.href = '/movie/' + m.id;
-                    if(category === "All Uncensored") {
-                         el.className = 'block bg-[#1f1f1f] rounded overflow-hidden mb-4';
-                         el.innerHTML = '<img src="'+m.coverUrl+'" class="aspect-video object-cover w-full" /><div class="p-3"><h3 class="text-sm font-bold truncate text-white">'+m.title+'</h3></div>';
-                    } else {
-                         el.className = 'block bg-[#1f1f1f] rounded overflow-hidden';
-                         el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>';
-                    }
+                    if(category === "All Uncensored") { el.className = 'block bg-[#1f1f1f] rounded overflow-hidden mb-4'; el.innerHTML = '<img src="'+m.coverUrl+'" class="aspect-video object-cover w-full" /><div class="p-3"><h3 class="text-sm font-bold truncate text-white">'+m.title+'</h3></div>'; } 
+                    else { el.className = 'block bg-[#1f1f1f] rounded overflow-hidden'; el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>'; }
                     container.appendChild(el);
                 });
             } catch(e) { console.error(e); }
@@ -217,9 +228,12 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
   </html>
 );
 
+// ... (Public Routes, JSON API, Search, etc. remain the same) ...
+
 // =======================
-// 5. ROUTES
+// 5. PUBLIC ROUTES & API
 // =======================
+
 app.get("/manifest.json", (c) => c.json({ "name": "Gold Flix", "short_name": "GoldFlix", "start_url": "/", "display": "standalone", "background_color": "#000000", "theme_color": "#000000", "icons": [{ "src": "https://cdn-icons-png.flaticon.com/512/2503/2503508.png", "sizes": "192x192", "type": "image/png" }, { "src": "https://cdn-icons-png.flaticon.com/512/2503/2503508.png", "sizes": "512x512", "type": "image/png" }] }));
 app.get("/.well-known/assetlinks.json", (c) => c.json([{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "android_app", "package_name": "dev.deno.goldflix_stream.twa", "sha256_cert_fingerprints": ["29:7D:1A:43:86:09:03:FE:02:F9:69:46:5A:F8:B7:C0:9A:14:75:10:F6:F3:07:4F:2E:CF:0E:F1:3E:D4:5F:7D"] } }]));
 app.get("/service-worker.js", (c) => c.text(`self.addEventListener('install', (e) => { self.skipWaiting(); }); self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); }); self.addEventListener('fetch', (e) => { if (e.request.mode === 'navigate') { e.respondWith(fetch(e.request).catch(() => caches.match(e.request))); } else { e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request))); } });`, 200, { "Content-Type": "application/javascript" }));
@@ -251,6 +265,7 @@ app.get("/", async (c) => {
   );
 });
 
+// JSON API
 app.get("/api/list", async (c) => {
     const cat = c.req.query("cat") || "Movies";
     const page = parseInt(c.req.query("page") || "1");
@@ -280,7 +295,9 @@ app.post("/api/fav", async (c) => { const user = await getCurrentUser(c); if (!u
 app.get("/stream/:token", async (c) => { const token = c.req.param("token"); const entry = await kv.get(["stream_tokens", token]); if (!entry.value) return c.text("Link Expired or Invalid", 403); return c.redirect(entry.value as string); });
 app.get("/dl/:token", async (c) => { const token = c.req.param("token"); const entry = await kv.get(["stream_tokens", token]); if (!entry.value) return c.text("Download Link Expired", 403); return c.redirect(entry.value as string); });
 
+// MOVIE DETAIL (ALL FEATURES + IP BAN CHECK)
 app.get("/movie/:id", async (c) => {
+    if(await checkIP(c)) return c.text("Access Denied", 403);
     const id = c.req.param("id");
     const movie = await getMovie(id);
     const user = await getCurrentUser(c);
@@ -318,7 +335,7 @@ app.get("/movie/:id", async (c) => {
                         <div class="flex gap-2 overflow-x-auto">
                             <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken : playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap"> <i class="fa-solid fa-play"></i> {movie.streamUrl2 ? "Server 1" : "Play"} </button>
                             {movie.streamUrl2 && ( <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken2 : playerUrl2}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-gray-200 text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-white whitespace-nowrap"> <i class="fa-solid fa-server"></i> Server 2 </button> )}
-                            <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700"> <i class="fa-solid fa-share-nodes"></i> Share </button>
+                            <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700"> <i class="fa-solid fa-share-nodes"></i> </button>
                         </div>
                         <div class="flex gap-2">
                              {secureDownloadUrl && ( <a href={secureDownloadUrl} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs"> <i class="fa-solid fa-download"></i> DL {movie.downloadUrl2 ? "1" : ""} </a> )}
@@ -350,16 +367,21 @@ app.get("/movie/:id", async (c) => {
 
 // AUTH + ADMIN ROUTES (SAME AS BEFORE)
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><label class="flex items-center text-gray-400 text-xs"><input type="checkbox" name="remember" class="mr-2 accent-red-600" /> Remember Me (7 Days)</label><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
-app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body["username"] as string); const hashedInput = await hashPassword(body["password"] as string); if (user && user.passwordHash === hashedInput) { const sessionId = crypto.randomUUID(); user.sessionId = sessionId; await kv.set(["users", user.username], user); const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge }); return c.redirect("/"); } return c.redirect("/login?error=Invalid Username or Password"); });
+app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body["username"] as string); const hashedInput = await hashPassword(body["password"] as string); if (user && user.passwordHash === hashedInput) { const sessionId = crypto.randomUUID(); user.sessionId = sessionId; await kv.set(["users", user.username], user); const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge });
+    await addLoginLog(user.username, c.req.header('x-forwarded-for') || "unknown"); 
+    return c.redirect("/"); } return c.redirect("/login?error=Invalid Username or Password"); });
 app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Create Account</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Sign Up</button><p class="text-xs text-gray-500 text-center mt-4">Has account? <a href="/login" class="text-white font-bold">Login</a></p></form></div></div></Layout>));
-app.post("/signup", async (c) => { const { username, password } = await c.req.parseBody(); if (await getUser(username as string)) return c.redirect("/signup?error=User already exists!"); const passwordHash = await hashPassword(password as string); const newUser: User = { username: String(username), passwordHash, expiryDate: null, favorites: [], sessionId: "" }; await kv.set(["users", String(username)], newUser); return c.redirect("/login?success=Account created successfully!"); });
+app.post("/signup", async (c) => { const { username, password } = await c.req.parseBody(); if (await getUser(username as string)) return c.redirect("/signup?error=User already exists!"); const passwordHash = await hashPassword(password as string); const newUser: User = { username: String(username), passwordHash, expiryDate: null, favorites: [], sessionId: "" }; await kv.set(["users", String(username)], newUser); 
+    await addLoginLog(String(username), c.req.header('x-forwarded-for') || "unknown");
+    return c.redirect("/login?success=Account created successfully!"); });
 app.get("/profile", async (c) => { const user = await getCurrentUser(c); if (!user) return c.redirect("/login"); const premium = isPremium(user); const daysLeft = user.expiryDate ? Math.ceil((new Date(user.expiryDate).getTime() - Date.now()) / 86400000) : 0; const plans = [{ name: "1 Month", price: "700 Ks", days: 30 }, { name: "3 Months", price: "1,500 Ks", days: 90, popular: true }, { name: "5 Months", price: "2,200 Ks", days: 150 }, { name: "1 Year", price: "5,000 Ks", days: 365 }]; return c.html(<Layout user={user}><div class="p-4 max-w-4xl mx-auto"><div class="bg-[#1f1f1f] p-6 rounded-xl flex items-center gap-6 mb-8 border border-zinc-800 shadow-lg"><div class="w-20 h-20 bg-gradient-to-br from-red-600 to-red-800 rounded-full flex items-center justify-center text-3xl font-bold shadow-lg shadow-red-900/50">{user.username[0].toUpperCase()}</div><div><h2 class="text-2xl font-bold mb-1">{user.username}</h2><div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black border border-zinc-700 text-sm"><span class={premium ? "w-2 h-2 rounded-full bg-green-500" : "w-2 h-2 rounded-full bg-gray-500"}></span><span class={premium ? "text-green-400 font-bold" : "text-gray-400"}>{premium ? `VIP Active (${daysLeft} days)` : "Free Plan"}</span></div></div></div><div class="bg-[#1f1f1f] p-6 rounded-xl mb-8 border border-zinc-800"><h3 class="font-bold mb-4 text-gray-300 uppercase text-xs tracking-wider">Activate VIP</h3><form action="/profile/redeem" method="post" class="flex gap-2"><input name="key" placeholder="Enter VIP Code (e.g. VIP-12345)" required class="input-box" /><button class="btn-primary whitespace-nowrap">Redeem Code</button></form></div><h3 class="font-bold mb-4 text-xl text-yellow-500"><i class="fa-solid fa-crown mr-2"></i> Premium Plans</h3><div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">{plans.map(p => (<div class={`relative bg-black p-4 rounded-xl border ${p.popular ? 'border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'border-zinc-800'} text-center flex flex-col justify-center`}>{p.popular && <div class="absolute -top-3 left-0 right-0 mx-auto w-fit bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full">MOST POPULAR</div>}<h4 class="text-gray-400 text-sm mb-1">{p.name}</h4><div class="text-xl font-black text-white mb-2">{p.price}</div></div>))}</div><a href="/logout" class="block w-full bg-zinc-900 border border-zinc-700 text-center py-3 rounded-lg text-red-500 font-bold hover:bg-red-900/10 transition">Log Out</a></div></Layout>); });
 app.post("/profile/redeem", async (c) => { const user = await getCurrentUser(c); if (!user) return c.redirect("/login"); const { key } = await c.req.parseBody(); const keyData = await kv.get<VipKey>(["keys", String(key)]); if (!keyData.value) return c.redirect("/profile?error=Invalid VIP Key!"); const currentExpiry = user.expiryDate && new Date(user.expiryDate) > new Date() ? new Date(user.expiryDate) : new Date(); currentExpiry.setDate(currentExpiry.getDate() + keyData.value.days); user.expiryDate = currentExpiry.toISOString(); await kv.set(["users", user.username], user); await kv.delete(["keys", String(key)]); return c.redirect("/profile?success=VIP Activated Successfully!"); });
 app.get("/logout", (c) => { deleteCookie(c, "auth_session"); return c.redirect("/"); });
-const adminAuth = async (c: any, next: any) => { const session = getCookie(c, "admin_session"); if (session === Deno.env.get("ADMIN_PASSWORD")) await next(); else return c.redirect("/admin"); };
+
+// ADMIN + IP LOGS
 app.get("/admin", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black"><form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80"><h2 class="font-bold text-center mb-4">Admin Login</h2><input type="password" name="password" placeholder="Key" class="input-box mb-4" /><button class="btn-primary w-full">Enter</button></form></div></Layout>));
 app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
-app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
+app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const loginLogs = await getRecentLogins(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
         if(e.season) return `${e.season} | ${e.name} | ${e.url}`;
         return `${e.name} | ${e.url}`;
     }).join('\n') || "";
@@ -369,20 +391,31 @@ app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMo
             <div class="p-4 bg-zinc-900 min-h-screen">
                 <div class="flex justify-between items-center mb-6"><h1 class="font-bold text-red-600">Admin Panel</h1><div class="flex gap-2"><a href="/" class="text-xs bg-black px-3 py-1 rounded">App</a><a href="/admin/backup" class="bg-blue-600 text-white px-3 py-1 rounded text-xs">Backup</a><form action="/admin/restore" method="post" enctype="multipart/form-data" class="inline"><label class="bg-green-600 text-white px-3 py-1 rounded text-xs cursor-pointer">Restore<input type="file" name="file" class="hidden" onchange="this.form.submit()" /></label></form></div></div>
                 <div class="grid lg:grid-cols-2 gap-6">
-                    {/* LEFT: MOVIE FORM + ANNOUNCEMENT */}
+                    {/* LEFT: MOVIE FORM */}
                     <div class="space-y-6">
                         <div class="bg-[#1f1f1f] p-4 rounded border border-yellow-600"><h2 class="font-bold mb-2 text-sm text-yellow-500">Announcement Bar</h2><form action="/admin/config" method="post" class="flex gap-2"><input name="text" placeholder="Message..." value={config.announcement} class="input-box flex-grow" /><label class="flex items-center text-xs"><input type="checkbox" name="show" checked={config.showAnnouncement} class="mr-1" /> Show</label><button class="btn-primary py-1 px-3">Set</button></form></div>
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 sticky top-4"><h2 class="font-bold mb-3 text-sm text-yellow-500">{editMovie ? "Edit Movie" : "Add Movie"}</h2><form action="/admin/movie/save" method="post" class="space-y-2 text-sm"><input type="hidden" name="id" value={editMovie?.id || crypto.randomUUID()} /><input type="hidden" name="createdAt" value={editMovie?.createdAt || Date.now()} /><input name="title" placeholder="Title" value={editMovie?.title} required class="input-box" /><div class="flex gap-2"><select name="category" class="input-box">{["Movies","Series","Adult","All Uncensored"].map(o => <option selected={editMovie?.category===o}>{o}</option>)}</select><input name="year" value={editMovie?.year || "2025"} class="input-box w-20" /></div><input name="posterUrl" placeholder="Poster URL" value={editMovie?.posterUrl} required class="input-box" /><input name="coverUrl" placeholder="Cover URL" value={editMovie?.coverUrl} required class="input-box border-yellow-500/50" /><div class="p-2 bg-black rounded border border-zinc-800"><select name="linkType" class="input-box mb-2 text-xs"><option value="direct" selected={editMovie?.linkType==="direct"}>Direct Link (Auto-Resolve)</option><option value="embed" selected={editMovie?.linkType==="embed"}>Embed Code / Iframe</option></select><input name="streamUrl" placeholder="Movie URL (Ep1)" value={editMovie?.streamUrl} class="input-box" /></div><div class="p-2 bg-black rounded border border-zinc-800"><label class="text-xs text-yellow-500 mb-1 block">Series Episodes (Season | Ep | URL)</label><textarea name="episodeList" placeholder="S1 Ep1 | https://...&#10;S1 Ep2 | https://..." rows={5} class="input-box font-mono text-xs whitespace-nowrap overflow-x-auto">{epString}</textarea></div><div class="grid grid-cols-2 gap-2"><input name="downloadUrl" placeholder="Download Link 1" value={editMovie?.downloadUrl} class="input-box text-xs border-green-900/50 focus:border-green-500" /><input name="downloadUrl2" placeholder="Download Link 2" value={editMovie?.downloadUrl2} class="input-box text-xs border-green-900/50 focus:border-green-500" /></div><div class="p-2 bg-black rounded border border-zinc-800"><label class="text-xs text-gray-500">Server 2 (Optional)</label><input name="streamUrl2" placeholder="Stream URL 2" value={editMovie?.streamUrl2} class="input-box mt-2" /></div><textarea name="description" placeholder="Desc" class="input-box">{editMovie?.description}</textarea><button class="btn-primary w-full">{editMovie ? "Update" : "Save"}</button>{editMovie && <a href="/admin/dashboard" class="block text-center text-xs text-gray-400 mt-2">Cancel</a>}</form></div>
                     </div>
-                    {/* RIGHT: KEYS, REQUESTS, LIST, IP MANAGER */}
+                    {/* RIGHT */}
                     <div class="space-y-6">
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700"><h2 class="font-bold mb-3 text-sm">VIP Keys</h2><form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form><div class="mt-2 max-h-32 overflow-y-auto custom-scroll">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div></div>
                         
-                        {/* IP BAN MANAGER */}
+                        {/* RECENT LOGINS / IP BAN */}
                         <div class="bg-[#1f1f1f] p-4 rounded border border-red-900/50">
-                            <h2 class="font-bold mb-2 text-sm text-red-500">IP Ban Manager</h2>
-                            <form action="/admin/ban" method="post" class="flex gap-2 mb-2"><input name="ip" placeholder="IP Address" required class="input-box text-xs" /><button class="btn-primary text-xs bg-red-600">Ban</button></form>
-                            <div class="max-h-24 overflow-y-auto custom-scroll space-y-1">{(await getBannedIPs()).map(b => (<div class="flex justify-between bg-black p-1 px-2 rounded text-[10px]"><span>{b.ip}</span><form action={`/admin/unban/${b.ip}`} method="post"><button class="text-red-500">Unban</button></form></div>))}</div>
+                            <h2 class="font-bold mb-2 text-sm text-red-500">Recent Logins (IP Ban)</h2>
+                            <div class="max-h-32 overflow-y-auto custom-scroll space-y-1">
+                                {loginLogs.map(l => (
+                                    <div class="flex justify-between bg-black p-1 px-2 rounded text-[10px] items-center">
+                                        <div class="flex flex-col"><span class="text-white font-bold">{l.username}</span><span class="text-gray-500">{l.ip}</span></div>
+                                        <form action="/admin/ban" method="post">
+                                            <input type="hidden" name="ip" value={l.ip} />
+                                            <button class="bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700">Ban</button>
+                                        </form>
+                                    </div>
+                                ))}
+                            </div>
+                            <h3 class="font-bold mt-2 text-xs text-gray-400">Banned IPs</h3>
+                            <div class="max-h-20 overflow-y-auto custom-scroll space-y-1">{(await getBannedIPs()).map(b => (<div class="flex justify-between bg-black p-1 px-2 rounded text-[10px]"><span>{b.ip}</span><form action={`/admin/unban/${b.ip}`} method="post"><button class="text-green-500">Unban</button></form></div>))}</div>
                         </div>
 
                         <div class="bg-[#1f1f1f] p-4 rounded border border-blue-900/50"><h2 class="font-bold mb-2 text-sm text-blue-400">User Requests</h2><div class="max-h-40 overflow-y-auto custom-scroll space-y-2">{requests.map(r => (<div class="bg-black p-2 rounded text-xs flex justify-between"><div><span class="text-yellow-500 font-bold">{r.movieName}</span> <span class="text-gray-500">by {r.username}</span></div><form action={`/admin/request/delete/${r.id}`} method="post"><button class="text-red-500">x</button></form></div>))}{requests.length === 0 && <p class="text-gray-600 text-xs">No requests.</p>}</div></div>
