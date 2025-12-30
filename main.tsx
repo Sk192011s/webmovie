@@ -2,8 +2,12 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 
+// import { crypto } from "std/crypto/mod.ts";  <-- ဒီစာကြောင်း မရှိရပါ (ဖျက်ထားရမယ်)
+
 const app = new Hono();
 const kv = await Deno.openKv();
+
+// ... ကျန်တာတွေ အတူတူပဲ ...
 
 // =======================
 // CONFIG & ENV
