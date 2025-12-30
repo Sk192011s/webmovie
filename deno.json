@@ -1,13 +1,12 @@
 {
   "imports": {
-    "hono/": "https://deno.land/x/hono@v3.11.7/",
+    "hono": "https://deno.land/x/hono@v4.3.11/mod.ts",
+    "hono/": "https://deno.land/x/hono@v4.3.11/",
+    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
     "std/": "https://deno.land/std@0.208.0/"
   },
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
-  },
-  "tasks": {
-    "start": "deno run -A --unstable-kv main.tsx"
   }
 }
