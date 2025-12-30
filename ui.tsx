@@ -11,63 +11,54 @@ export const Layout = (props: { children: any; title?: string; user?: User | nul
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
       <style>{`
         body { background-color: #000; color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
-        .glass { background: rgba(20, 20, 20, 0.8); backdrop-filter: blur(15px); border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .input-box { background: #1a1a1a; border: 1px solid #333; color: white; padding: 12px; border-radius: 12px; width: 100%; outline: none; transition: 0.3s; }
-        .input-box:focus { border-color: #E50914; box-shadow: 0 0 10px rgba(229, 9, 20, 0.2); }
-        .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 12px 24px; border-radius: 12px; transition: 0.3s; cursor: pointer; display: inline-block; text-align: center; }
-        .btn-primary:active { transform: scale(0.95); }
-        .h-scroll-section { display: flex; overflow-x: auto; gap: 15px; padding-bottom: 10px; scroll-snap-type: x mandatory; }
-        .h-scroll-section::-webkit-scrollbar { height: 4px; }
-        .h-scroll-section::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-        .movie-card { min-width: 120px; width: 120px; flex-shrink: 0; scroll-snap-align: start; }
+        .glass { background: rgba(20, 20, 20, 0.9); backdrop-filter: blur(15px); border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .input-box { background: #1a1a1a; border: 1px solid #333; color: white; padding: 12px; border-radius: 12px; width: 100%; outline: none; }
+        .btn-primary { background: #E50914; color: white; font-weight: bold; padding: 12px 24px; border-radius: 12px; cursor: pointer; text-align: center; }
+        .h-scroll-section { display: flex; overflow-x: auto; gap: 15px; padding-bottom: 10px; }
+        .movie-card { min-width: 120px; width: 120px; flex-shrink: 0; }
         .movie-card.wide { min-width: 260px; width: 260px; }
-        #page-loader { position: fixed; inset: 0; background: #000; z-index: 9999; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: 0.3s; }
-        #page-loader.active { opacity: 1; pointer-events: all; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top-color: #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        .slider-container { position: relative; height: 250px; overflow: hidden; }
+        .slide { position: absolute; inset: 0; opacity: 0; transition: 1s ease-in-out; }
+        .slide.active { opacity: 1; }
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
-        function toggleSeason(id) {
-            const el = document.getElementById('season-' + id);
-            const icon = document.getElementById('icon-' + id);
-            el.classList.toggle('hidden');
-            icon.classList.toggle('rotate-180');
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+            const slides = document.querySelectorAll('.slide');
+            if(slides.length > 0) {
+                let current = 0;
+                setInterval(() => {
+                    slides[current].classList.remove('active');
+                    current = (current + 1) % slides.length;
+                    slides[current].classList.add('active');
+                }, 4000);
+            }
+        });
+        function toggleSeason(id) { document.getElementById('season-'+id).classList.toggle('hidden'); }
         function loadPlayer(url) {
-            const box = document.getElementById('video-box');
-            const cover = document.getElementById('video-cover');
-            if(cover) cover.style.display = 'none';
-            box.innerHTML = '<video id="main-player" controls class="w-full h-full" autoplay><source src="'+url+'" type="video/mp4"></video>';
-            window.scrollTo({top: 0, behavior: 'smooth'});
-        }
-        function filterLibrary(val) {
-            document.querySelectorAll('.lib-item').forEach(i => {
-                i.style.display = i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase()) ? 'flex' : 'none';
-            });
+            document.getElementById('video-cover').style.display = 'none';
+            document.getElementById('video-box').innerHTML = '<video controls class="w-full h-full" autoplay><source src="'+url+'" type="video/mp4"></video>';
         }
         function toggleHelp() { document.getElementById('help-box').classList.toggle('hidden'); }
+        function filterLibrary(val) {
+            document.querySelectorAll('.lib-item').forEach(i => i.style.display = i.getAttribute('data-title').toLowerCase().includes(val.toLowerCase()) ? 'flex' : 'none');
+        }
       `}} />
     </head>
     <body>
-      <div id="page-loader"><div class="spinner"></div></div>
       {!props.hideNav && (
         <nav class="sticky top-0 z-50 glass px-6 py-4 flex justify-between items-center">
             <a href="/" class="text-2xl font-black text-red-600 italic tracking-tighter">GOLD FLIX</a>
-            <div class="flex gap-6 text-gray-400 items-center text-sm font-bold">
-              <a href="/" class="hover:text-white transition">Home</a>
-              <a href="/favorites" class="hover:text-white transition">Saved</a>
-              <a href="/request" class="hover:text-white transition">Request</a>
-              {props.user ? (
-                <a href="/profile" class="bg-red-600 w-8 h-8 flex items-center justify-center rounded-full text-white">{props.user.username[0].toUpperCase()}</a>
-              ) : (
-                <a href="/login" class="text-white bg-zinc-800 px-4 py-1.5 rounded-full">Login</a>
-              )}
+            <div class="flex gap-5 text-gray-400 items-center text-sm font-bold">
+              <a href="/">Home</a>
+              <a href="/favorites">Saved</a>
+              <a href="/request">Request</a>
+              {props.user ? <a href="/profile" class="bg-red-600 w-8 h-8 flex items-center justify-center rounded-full text-white">{props.user.username[0].toUpperCase()}</a> : <a href="/login">Login</a>}
             </div>
         </nav>
       )}
       {props.announcement && (
-        <div class="bg-yellow-500 text-black text-[11px] font-bold py-2 px-6 sticky top-[65px] z-40 shadow-lg">
-          <marquee scrollamount="6">{props.announcement}</marquee>
+        <div class="bg-yellow-500 text-black text-[11px] font-bold py-2 px-6 sticky top-[65px] z-40">
+          <marquee scrollamount="5">{props.announcement}</marquee>
         </div>
       )}
       <main class="min-h-screen pb-20">{props.children}</main>
