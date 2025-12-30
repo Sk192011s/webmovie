@@ -1,11 +1,11 @@
 {
   "imports": {
-    "hono": "jsr:@hono/hono@^4.3.11",
-    "hono/": "jsr:/@hono/hono@^4.3.11/",
-    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts"
+    "hono": "https://deno.land/x/hono@v3.12.0/",
+    "hono/": "https://deno.land/x/hono@v3.12.0/",
+    "std/": "https://deno.land/std@0.224.0/"
   },
   "compilerOptions": {
-    "jsx": "precompile",
+    "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   }
 }
