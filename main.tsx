@@ -1,7 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { crypto } from "std/crypto/mod.ts"; // Global crypto မရရင်သာ ဒါကိုဖွင့်ပါ
+
 
 const app = new Hono();
 const kv = await Deno.openKv();
@@ -14,7 +14,7 @@ const ADMIN_PASS = Deno.env.get("ADMIN_PASSWORD") || "admin123";
 
 // 🔥 ADMIN လမ်းကြောင်း ပြောင်းရန် ဒီမှာပြင်ပါ 🔥
 // ဥပမာ - "/boss-room", "/control-panel", "/my-secret"
-const ADMIN_ROUTE = "/manager"; 
+const ADMIN_ROUTE = "/iqowoq"; 
 
 // =======================
 // CACHING SYSTEM
