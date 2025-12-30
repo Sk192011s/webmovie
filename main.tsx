@@ -1,7 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { crypto } from "std/crypto/mod.ts"; 
+
 
 const app = new Hono();
 const kv = await Deno.openKv();
@@ -13,7 +13,7 @@ const SALT = Deno.env.get("SECRET_SALT") || "GOLD_FLIX_SECURE_SALT_2025";
 const ADMIN_PASS = Deno.env.get("ADMIN_PASSWORD") || "admin123";
 
 // 🔥 ADMIN လမ်းကြောင်း
-const ADMIN_ROUTE = "/manager"; 
+const ADMIN_ROUTE = "/soekyawwin"; 
 
 // =======================
 // CACHING SYSTEM
