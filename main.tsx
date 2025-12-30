@@ -31,6 +31,7 @@ interface Movie {
 }
 interface User {
   username: string; passwordHash: string; expiryDate: string | null; favorites: string[]; sessionId?: string;
+  ip?: string;
 }
 interface VipKey { code: string; days: number; }
 interface UserRequest { id: string; username: string; movieName: string; timestamp: number; }
@@ -59,7 +60,6 @@ async function addLoginLog(username: string, ip: string) { await kv.set(["login_
 // =======================
 // 3. MIDDLEWARE
 // =======================
-// Check IP Ban
 async function checkIP(c: any) {
     const ip = c.req.header('x-forwarded-for')?.split(',')[0] || "unknown";
     const banned = await kv.get(["banned_ips", ip]);
@@ -67,7 +67,6 @@ async function checkIP(c: any) {
     return false;
 }
 
-// Get Current User
 async function getCurrentUser(c: any) {
   const authCookie = getCookie(c, "auth_session");
   if (!authCookie) return null;
@@ -77,17 +76,15 @@ async function getCurrentUser(c: any) {
   if (!user || user.sessionId !== token) return null;
   return user;
 }
-
 function isPremium(user: User | null) {
   if (!user || !user.expiryDate) return false;
   return new Date(user.expiryDate) > new Date();
 }
-
 async function resolveRedirect(url: string) {
   try { const res = await fetch(url, { method: "HEAD", redirect: "follow" }); return res.url; } catch { return url; }
 }
 
-// Admin Auth Middleware (Declared Once Here)
+// ADMIN AUTH (DEFINED ONCE HERE)
 const adminAuth = async (c: any, next: any) => {
   const session = getCookie(c, "admin_session");
   if (session === Deno.env.get("ADMIN_PASSWORD")) {
@@ -112,13 +109,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <meta http-equiv="Expires" content="0" />
 
       <title>{props.title || "Gold Flix"}</title>
-      
-      {/* MANIFEST & THEME */}
       <link rel="manifest" href="/manifest.json" />
       <meta name="theme-color" content="#000000" />
-      <meta name="apple-mobile-web-app-capable" content="yes" />
-      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
       <style>{`
@@ -160,17 +152,10 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
             if ('serviceWorker' in navigator) { 
-                navigator.serviceWorker.register('/service-worker.js').then(reg => {
-                    reg.update();
-                });
+                navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update());
             }
-            
             const loader = document.getElementById('page-loader');
-            
-            document.addEventListener('contextmenu', e => { 
-                if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
-            });
-            
+            document.addEventListener('contextmenu', e => { if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); });
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
@@ -181,15 +166,12 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                     }
                 }
             });
-            
             document.querySelectorAll('form').forEach(f => f.addEventListener('submit', () => loader.classList.add('active')));
             window.addEventListener('pageshow', () => loader.classList.remove('active'));
-
             const urlParams = new URLSearchParams(window.location.search);
             if(urlParams.get('error')) showToast(urlParams.get('error'), 'error');
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
-            
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
 
@@ -219,12 +201,9 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 const container = document.getElementById('video-player');
                 const cover = document.getElementById('video-cover');
                 const loader = document.getElementById('video-player-loader');
-                
                 if(cover) cover.style.display = 'none';
                 if(loader) loader.style.display = 'flex';
-                
                 let finalUrl = content;
-
                 if (type === 'direct') {
                     try {
                         const res = await fetch('/api/resolve-url?token=' + content);
@@ -232,7 +211,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                         if (data.url) finalUrl = data.url;
                     } catch (e) { console.error(e); }
                 }
-
                 let htmlContent = '';
                 if (type === 'embed' || finalUrl.includes('<iframe')) {
                     htmlContent = finalUrl.includes('<iframe') ? finalUrl : '<iframe src="'+finalUrl+'" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>';
@@ -240,10 +218,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 } else {
                     htmlContent = '<video controls autoplay class="w-full h-full"><source src="'+finalUrl+'" type="video/mp4"></video>';
                 }
-                
                 container.innerHTML = htmlContent;
                 container.style.display = 'block';
-                
                 const video = container.querySelector('video');
                 if(video) {
                     video.addEventListener('loadeddata', () => { if(loader) loader.style.display = 'none'; });
@@ -271,13 +247,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 const container = document.getElementById('movie-grid');
                 data.movies.forEach(m => {
                     const el = document.createElement('a'); el.href = '/movie/' + m.id;
-                    if(category === "All Uncensored") {
-                         el.className = 'block bg-[#1f1f1f] rounded overflow-hidden mb-4';
-                         el.innerHTML = '<img src="'+m.coverUrl+'" class="aspect-video object-cover w-full" /><div class="p-3"><h3 class="text-sm font-bold truncate text-white">'+m.title+'</h3></div>';
-                    } else {
-                         el.className = 'block bg-[#1f1f1f] rounded overflow-hidden';
-                         el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>';
-                    }
+                    if(category === "All Uncensored") { el.className = 'block bg-[#1f1f1f] rounded overflow-hidden mb-4'; el.innerHTML = '<img src="'+m.coverUrl+'" class="aspect-video object-cover w-full" /><div class="p-3"><h3 class="text-sm font-bold truncate text-white">'+m.title+'</h3></div>'; } 
+                    else { el.className = 'block bg-[#1f1f1f] rounded overflow-hidden'; el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>'; }
                     container.appendChild(el);
                 });
             } catch(e) { console.error(e); }
@@ -289,31 +260,11 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     <body>
       <div id="page-loader"><div class="spinner"></div></div>
       <div id="toast-box"></div>
-
       {!props.hideNav && (
-        <nav class="sticky top-0 z-40 bg-black/95 border-b border-white/10 px-4 py-3 shadow-lg">
-          <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <a href="/" class="text-xl font-black text-red-600 tracking-tighter italic">GOLD FLIX</a>
-            <div class="flex gap-4 text-xs font-bold text-gray-400">
-              <a href="/" class="hover:text-white">Home</a>
-              <a href="/favorites" class="hover:text-red-500">Saved</a>
-              <a href="/request" class="hover:text-yellow-500">Request</a>
-              {props.user ? <a href="/profile" class="text-white">Me</a> : <a href="/login">Login</a>}
-            </div>
-          </div>
-        </nav>
+        <nav class="sticky top-0 z-40 bg-black/95 border-b border-white/10 px-4 py-3 shadow-lg"><div class="max-w-7xl mx-auto flex justify-between items-center"><a href="/" class="text-xl font-black text-red-600 tracking-tighter italic">GOLD FLIX</a><div class="flex gap-4 text-xs font-bold text-gray-400"><a href="/" class="hover:text-white">Home</a><a href="/favorites" class="hover:text-red-500">Saved</a><a href="/request" class="hover:text-yellow-500">Request</a>{props.user ? <a href="/profile" class="text-white">Me</a> : <a href="/login">Login</a>}</div></div></nav>
       )}
-
-      {props.announcement && (
-          <div class="sticky top-[53px] z-30 bg-yellow-500 text-black text-xs font-bold px-4 py-2 flex items-center gap-2 overflow-hidden shadow-md">
-              <i class="fa-solid fa-bullhorn animate-pulse"></i>
-              <marquee scrollamount="5">{props.announcement}</marquee>
-          </div>
-      )}
-
-      <main class="flex-grow w-full pb-10">
-        {props.children}
-      </main>
+      {props.announcement && (<div class="sticky top-[53px] z-30 bg-yellow-500 text-black text-xs font-bold px-4 py-2 flex items-center gap-2 overflow-hidden shadow-md"><i class="fa-solid fa-bullhorn animate-pulse"></i><marquee scrollamount="5">{props.announcement}</marquee></div>)}
+      <main class="flex-grow w-full pb-10">{props.children}</main>
     </body>
   </html>
 );
@@ -388,6 +339,7 @@ app.get("/", async (c) => {
                      <div class="absolute bottom-4 left-4 right-4">
                          <span class="bg-red-600 text-[10px] text-white px-2 py-0.5 rounded font-bold">Featured</span>
                          <h1 class="text-xl md:text-3xl font-bold text-white drop-shadow-md truncate mt-1">{m.title}</h1>
+                         {/* Play Button - Link to Detail */}
                          <a href={`/movie/${m.id}`} class="mt-2 inline-flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded font-bold text-sm"><i class="fa-solid fa-play"></i> Play</a>
                      </div>
                  </div>
@@ -415,12 +367,11 @@ app.get("/", async (c) => {
                     </div>
                 )
             }
-
+            // Standard Layout
             return (
                 <div>
                     <div class="flex justify-between items-end mb-3 px-1">
-                        <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2>
-                        <a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
+                        <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2><a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
                     </div>
                     <div class="h-scroll-section custom-scroll">
                         {catMovies.map(m => (
@@ -480,12 +431,61 @@ app.get("/category/:cat", async (c) => {
         <div id="loading-indicator" class="text-center py-4 hidden"><i class="fa-solid fa-circle-notch fa-spin text-red-600 text-xl"></i></div></div></Layout>);
 });
 
-// Search, Request, Favorites, Auth Routes (Same structure as before)
-app.get("/search", async (c) => { const user = await getCurrentUser(c); const query = c.req.query("q")?.toLowerCase() || ""; const config = await getConfig(); const allMovies = await getMovies(); const results = allMovies.filter(m => (m.title && m.title.toLowerCase().includes(query)) || (m.tags && m.tags.toLowerCase().includes(query))); return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>); });
-app.get("/request", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const config = await getConfig(); return c.html(<Layout user={user} title="Request" announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-6 max-w-md mx-auto min-h-[70vh] flex flex-col justify-center"><h1 class="text-2xl font-bold mb-4 text-yellow-500">Request Movie</h1><p class="text-gray-400 text-sm mb-6">Can't find what you're looking for? Let us know!</p><form action="/request" method="post" class="space-y-4"><input name="movieName" placeholder="Movie Name (e.g. Iron Man)" required class="input-box" /><button class="btn-primary w-full">Submit Request</button></form></div></Layout>); });
-app.post("/request", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const { movieName } = await c.req.parseBody(); const req: UserRequest = { id: crypto.randomUUID(), username: user.username, movieName: String(movieName), timestamp: Date.now() }; await kv.set(["requests", req.id], req); return c.redirect("/request?success=Request Submitted!"); });
-app.get("/favorites", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const allMovies = await getMovies(); const favs = allMovies.filter(m => user.favorites?.includes(m.id)); return c.html(<Layout user={user} title="Saved"><div class="p-4"><h1 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-heart text-red-600"></i> My Saved Movies</h1><div class="grid grid-cols-3 gap-2">{favs.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>{favs.length===0 && <p class="text-gray-500 text-center mt-10">No saved movies.</p>}</div></Layout>); });
-app.post("/api/fav", async (c) => { const user = await getCurrentUser(c); if (!user) return c.redirect("/login"); const { movieId } = await c.req.parseBody(); const id = String(movieId); if (!user.favorites) user.favorites = []; if (user.favorites.includes(id)) user.favorites = user.favorites.filter(f => f !== id); else user.favorites.push(id); await kv.set(["users", user.username], user); return c.redirect(c.req.header("Referer") || "/"); });
+app.get("/search", async (c) => {
+    const user = await getCurrentUser(c);
+    const query = c.req.query("q")?.toLowerCase() || "";
+    const config = await getConfig();
+    const allMovies = await getMovies();
+    const results = allMovies.filter(m => (m.title && m.title.toLowerCase().includes(query)) || (m.tags && m.tags.toLowerCase().includes(query)));
+    return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>);
+});
+
+app.get("/request", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const config = await getConfig();
+    return c.html(
+        <Layout user={user} title="Request" announcement={config.showAnnouncement ? config.announcement : undefined}>
+            <div class="p-6 max-w-md mx-auto min-h-[70vh] flex flex-col justify-center">
+                <h1 class="text-2xl font-bold mb-4 text-yellow-500">Request Movie</h1>
+                <p class="text-gray-400 text-sm mb-6">Can't find what you're looking for? Let us know!</p>
+                <form action="/request" method="post" class="space-y-4">
+                    <input name="movieName" placeholder="Movie Name (e.g. Iron Man)" required class="input-box" />
+                    <button class="btn-primary w-full">Submit Request</button>
+                </form>
+            </div>
+        </Layout>
+    );
+});
+
+app.post("/request", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const { movieName } = await c.req.parseBody();
+    const req: UserRequest = { id: crypto.randomUUID(), username: user.username, movieName: String(movieName), timestamp: Date.now() };
+    await kv.set(["requests", req.id], req);
+    return c.redirect("/request?success=Request Submitted!");
+});
+
+app.get("/favorites", async (c) => {
+    const user = await getCurrentUser(c);
+    if(!user) return c.redirect("/login");
+    const allMovies = await getMovies();
+    const favs = allMovies.filter(m => user.favorites?.includes(m.id));
+    return c.html(<Layout user={user} title="Saved"><div class="p-4"><h1 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-heart text-red-600"></i> My Saved Movies</h1><div class="grid grid-cols-3 gap-2">{favs.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>{favs.length===0 && <p class="text-gray-500 text-center mt-10">No saved movies.</p>}</div></Layout>);
+});
+
+app.post("/api/fav", async (c) => {
+    const user = await getCurrentUser(c);
+    if (!user) return c.redirect("/login");
+    const { movieId } = await c.req.parseBody();
+    const id = String(movieId);
+    if (!user.favorites) user.favorites = [];
+    if (user.favorites.includes(id)) user.favorites = user.favorites.filter(f => f !== id);
+    else user.favorites.push(id);
+    await kv.set(["users", user.username], user);
+    return c.redirect(c.req.header("Referer") || "/");
+});
 
 // =======================
 // 6. STREAM & DOWNLOAD LOGIC
@@ -523,6 +523,7 @@ app.get("/movie/:id", async (c) => {
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
 
+    // SEASON GROUPING
     const seasons: Record<string, Episode[]> = {};
     const ungrouped: Episode[] = [];
 
@@ -684,6 +685,13 @@ app.get("/movie/:id", async (c) => {
                                </div>
                            )
                        })}
+                       
+                       <div class="flex gap-2 mt-4">
+                             {secureDownloadUrl && ( <a href={secureDownloadUrl} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs"> <i class="fa-solid fa-download"></i> DL {movie.downloadUrl2 ? "1" : ""} </a> )}
+                             {secureDownloadUrl2 && ( <a href={secureDownloadUrl2} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs"> <i class="fa-solid fa-download"></i> DL 2 </a> )}
+                        </div>
+                        <button onclick="toggleHelp()" class="text-xs text-yellow-500 hover:text-yellow-400 flex items-center gap-1 mt-2"><i class="fa-solid fa-circle-question"></i> ဒေါင်းလုဒ်လုပ်နည်း</button>
+                        <div id="download-help" class="hidden bg-zinc-900 border border-yellow-600/50 rounded-lg p-3 text-xs text-gray-300 space-y-2 mt-1"> <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>DL ခလုတ်ကို နှိပ်ပါ။ (Series ဖြစ်ပါက Folder Link သို့ ရောက်သွားပါမည်)</p> <hr class="border-zinc-700"/> <p><strong class="text-yellow-500">နည်းလမ်း (၂) - Video Player မှတဆင့်</strong><br/>1. Episode တစ်ခုကို နှိပ်၍ Play ပါ။<br/>2. Video ဖွင့်လာလျှင် ညာဘက်အောက်ထောင့်က အစက် ၃ စက် (<i class="fa-solid fa-ellipsis-vertical"></i>) ကိုနှိပ်ပါ။<br/>3. 'Download' ကို ရွေးချယ်ပါ။</p> </div>
                    </div>
                )}
 
@@ -719,7 +727,7 @@ app.get("/logout", (c) => { deleteCookie(c, "auth_session"); return c.redirect("
 const adminAuth = async (c: any, next: any) => { const session = getCookie(c, "admin_session"); if (session === Deno.env.get("ADMIN_PASSWORD")) await next(); else return c.redirect("/admin"); };
 app.get("/admin", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black"><form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80"><h2 class="font-bold text-center mb-4">Admin Login</h2><input type="password" name="password" placeholder="Key" class="input-box mb-4" /><button class="btn-primary w-full">Enter</button></form></div></Layout>));
 app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
-app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
+app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const loginLogs = await getRecentLogins(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
         if(e.season) return `${e.season} | ${e.name} | ${e.url}`;
         return `${e.name} | ${e.url}`;
     }).join('\n') || "";
@@ -736,6 +744,7 @@ app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMo
                     {/* RIGHT: KEYS, REQUESTS, LIST, IP MANAGER */}
                     <div class="space-y-6">
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700"><h2 class="font-bold mb-3 text-sm">VIP Keys</h2><form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form><div class="mt-2 max-h-32 overflow-y-auto custom-scroll">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div></div>
+                        <div class="bg-[#1f1f1f] p-4 rounded border border-red-900/50"><h2 class="font-bold mb-2 text-sm text-red-500">Recent Logins (IP Ban)</h2><div class="max-h-32 overflow-y-auto custom-scroll space-y-1">{loginLogs.map(l => (<div class="flex justify-between bg-black p-1 px-2 rounded text-[10px] items-center"><div class="flex flex-col"><span class="text-white font-bold">{l.username}</span><span class="text-gray-500">{l.ip}</span></div><form action="/admin/ban" method="post"><input type="hidden" name="ip" value={l.ip} /><button class="bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700">Ban</button></form></div>))}</div><h3 class="font-bold mt-2 text-xs text-gray-400">Banned IPs</h3><div class="max-h-20 overflow-y-auto custom-scroll space-y-1">{(await getBannedIPs()).map(b => (<div class="flex justify-between bg-black p-1 px-2 rounded text-[10px]"><span>{b.ip}</span><form action={`/admin/unban/${b.ip}`} method="post"><button class="text-green-500">Unban</button></form></div>))}</div></div>
                         <div class="bg-[#1f1f1f] p-4 rounded border border-blue-900/50"><h2 class="font-bold mb-2 text-sm text-blue-400">User Requests</h2><div class="max-h-40 overflow-y-auto custom-scroll space-y-2">{requests.map(r => (<div class="bg-black p-2 rounded text-xs flex justify-between"><div><span class="text-yellow-500 font-bold">{r.movieName}</span> <span class="text-gray-500">by {r.username}</span></div><form action={`/admin/request/delete/${r.id}`} method="post"><button class="text-red-500">x</button></form></div>))}{requests.length === 0 && <p class="text-gray-600 text-xs">No requests.</p>}</div></div>
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 flex flex-col h-[500px]"><div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div><div class="space-y-2 flex-1 overflow-y-auto pr-2 custom-scroll">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div></div>
                     </div>
@@ -775,6 +784,8 @@ app.post("/admin/movie/delete/:id", adminAuth, async (c) => { await kv.delete(["
 app.post("/admin/key/create", adminAuth, async (c) => { const { days } = await c.req.parseBody(); const code = "VIP-" + Math.random().toString(36).substring(2, 7).toUpperCase(); await kv.set(["keys", code], { code, days: parseInt(String(days)) }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/delete/:code", adminAuth, async (c) => { await kv.delete(["keys", c.req.param("code")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/user/reset", adminAuth, async (c) => { const { username, newpass } = await c.req.parseBody(); const user = await getUser(String(username)); if (user) { user.passwordHash = await hashPassword(String(newpass)); await kv.set(["users", String(username)], user); return c.redirect("/admin/dashboard?success=Password updated"); } return c.redirect("/admin/dashboard?error=User not found"); });
+app.post("/admin/ban", adminAuth, async (c) => { const { ip } = await c.req.parseBody(); await kv.set(["banned_ips", String(ip)], { ip, reason: "Manual Ban" }); return c.redirect("/admin/dashboard"); });
+app.post("/admin/unban/:ip", adminAuth, async (c) => { await kv.delete(["banned_ips", c.req.param("ip")]); return c.redirect("/admin/dashboard"); });
 app.get("/admin/backup", adminAuth, async (c) => { const data = []; for await (const entry of kv.list({ prefix: [] })) { data.push({ key: entry.key, value: entry.value }); } return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="backup_${Date.now()}.json"` } }); });
 app.post("/admin/restore", adminAuth, async (c) => { try { const body = await c.req.parseBody(); const file = body['file']; if (file instanceof File) { const text = await file.text(); const data = JSON.parse(text); for (const item of data) { await kv.set(item.key, item.value); } return c.redirect("/admin/dashboard?success=Data Restored"); } } catch(e) { return c.redirect("/admin/dashboard?error=Restore Failed"); } });
 
