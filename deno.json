@@ -1,8 +1,7 @@
 {
   "imports": {
-    "hono": "https://deno.land/x/hono@v3.12.0/",
-    "hono/": "https://deno.land/x/hono@v3.12.0/",
-    "std/": "https://deno.land/std@0.224.0/"
+    "hono": "jsr:@hono/hono@^4.6.14",
+    "hono/": "jsr:@hono/hono@^4.6.14/"
   },
   "compilerOptions": {
     "jsx": "react-jsx",
