@@ -1,7 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { crypto } from "std/crypto/mod.ts"; 
+
 
 const app = new Hono();
 const kv = await Deno.openKv();
