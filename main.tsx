@@ -11,9 +11,9 @@ const kv = await Deno.openKv();
 // =======================
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + "GOLD_FLIX_SALT_2025");
+  const data = encoder.encode(password + "GOLD_FLIX_SALT_2025"); 
   const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // =======================
@@ -25,13 +25,12 @@ interface Movie {
   category: "Movies" | "Series" | "Adult"; description: string; tags: string;
   year: string; streamUrl: string; streamUrl2?: string;
   episodes?: Episode[];
-  linkType: "direct" | "embed";
+  linkType: "direct" | "embed"; 
   downloadUrl?: string; downloadUrl2?: string;
   createdAt: number;
 }
 interface User {
-  username: string; passwordHash: string; expiryDate: string | null;
-  favorites: string[]; sessionId?: string;
+  username: string; passwordHash: string; expiryDate: string | null; favorites: string[]; sessionId?: string;
 }
 interface VipKey { code: string; days: number; }
 interface UserRequest { id: string; username: string; movieName: string; timestamp: number; }
@@ -51,7 +50,7 @@ async function getMovies() {
 async function getMovie(id: string) { const res = await kv.get<Movie>(["movies", id]); return res.value; }
 async function getUser(username: string) { const res = await kv.get<User>(["users", username]); return res.value; }
 async function getKeys() { const iter = kv.list<VipKey>({ prefix: ["keys"] }); const keys = []; for await (const res of iter) keys.push(res.value); return keys; }
-async function getRequests() { const iter = kv.list<UserRequest>({ prefix: ["requests"] }); const reqs = []; for await (const res of iter) reqs.push(res.value); return reqs.sort((a, b) => b.timestamp - a.timestamp); }
+async function getRequests() { const iter = kv.list<UserRequest>({ prefix: ["requests"] }); const reqs = []; for await (const res of iter) reqs.push(res.value); return reqs.sort((a,b)=>b.timestamp-a.timestamp); }
 async function getConfig() { const res = await kv.get<AppConfig>(["config"]); return res.value || { announcement: "Welcome to Gold Flix!", showAnnouncement: true }; }
 async function getBannedIPs() { const iter = kv.list<BannedIP>({ prefix: ["banned_ips"] }); const ips = []; for await (const res of iter) ips.push(res.value); return ips; }
 async function getRecentLogins() { const iter = kv.list<LoginLog>({ prefix: ["login_logs"] }, { limit: 20, reverse: true }); const logs = []; for await (const res of iter) logs.push(res.value); return logs; }
@@ -60,13 +59,15 @@ async function addLoginLog(username: string, ip: string) { await kv.set(["login_
 // =======================
 // 3. MIDDLEWARE
 // =======================
+// Check IP Ban
 async function checkIP(c: any) {
-  const ip = c.req.header("x-forwarded-for")?.split(",")[0] || "unknown";
-  const banned = await kv.get(["banned_ips", ip]);
-  if (banned.value) return true;
-  return false;
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0] || "unknown";
+    const banned = await kv.get(["banned_ips", ip]);
+    if (banned.value) return true; 
+    return false;
 }
 
+// Get Current User
 async function getCurrentUser(c: any) {
   const authCookie = getCookie(c, "auth_session");
   if (!authCookie) return null;
@@ -83,21 +84,16 @@ function isPremium(user: User | null) {
 }
 
 async function resolveRedirect(url: string) {
-  try {
-    const res = await fetch(url, { method: "HEAD", redirect: "follow" });
-    return res.url;
-  } catch {
-    return url;
-  }
+  try { const res = await fetch(url, { method: "HEAD", redirect: "follow" }); return res.url; } catch { return url; }
 }
 
+// Admin Auth Middleware (Declared Once Here)
 const adminAuth = async (c: any, next: any) => {
   const session = getCookie(c, "admin_session");
-  const envPass = Deno.env.get("ADMIN_PASSWORD");
-  if (session && session === envPass) {
-    await next();
+  if (session === Deno.env.get("ADMIN_PASSWORD")) {
+      await next();
   } else {
-    return c.redirect("/admin");
+      return c.redirect("/admin");
   }
 };
 
@@ -109,14 +105,19 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      <title>{props.title || "Gold Flix"}</title>
       
-      {/* PWA & CACHE CONTROL */}
-      <link rel="manifest" href="/manifest.json" />
-      <meta name="theme-color" content="#000000" />
+      {/* FORCE NO CACHE FOR HTML */}
       <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
       <meta http-equiv="Pragma" content="no-cache" />
       <meta http-equiv="Expires" content="0" />
+
+      <title>{props.title || "Gold Flix"}</title>
+      
+      {/* MANIFEST & THEME */}
+      <link rel="manifest" href="/manifest.json" />
+      <meta name="theme-color" content="#000000" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
@@ -133,29 +134,24 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
         .custom-scroll::-webkit-scrollbar-track { background: #000; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-        
         #toast-box { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold; display: flex; items-center; gap: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideIn 0.5s ease; min-width: 250px; }
         .toast.error { background: #E50914; border-left: 5px solid #ff9999; }
         .toast.success { background: #2ecc71; border-left: 5px solid #a8e6cf; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        
         #page-loader { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; transition: opacity 0.3s; pointer-events: none; opacity: 0; }
         #page-loader.active { pointer-events: all; opacity: 1; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
         .slider-container { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000; }
         .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease-in-out; pointer-events: none; z-index: 0; }
         .slide.active { opacity: 1; pointer-events: auto; z-index: 10; }
         .slide img { width: 100%; height: 100%; object-fit: cover; }
-        
         .h-scroll-section { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
         .h-scroll-item { min-width: 110px; width: 110px; flex-shrink: 0; scroll-snap-align: start; }
         .h-scroll-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; }
         .h-scroll-item.wide { min-width: 240px; width: 240px; }
         .h-scroll-item.wide img { aspect-ratio: 16/9; }
-
         .video-loader { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: #000; z-index: 20; }
         .video-loader .spinner { border-color: #333; border-top-color: #E50914; }
         video::-internal-media-controls-download-button { display:block !important; }
@@ -163,19 +159,18 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
       `}</style>
       <script dangerouslySetInnerHTML={{__html: `
         document.addEventListener('DOMContentLoaded', () => {
-            // Force PWA Update
             if ('serviceWorker' in navigator) { 
-                navigator.serviceWorker.register('/service-worker.js').then(reg => reg.update());
+                navigator.serviceWorker.register('/service-worker.js').then(reg => {
+                    reg.update();
+                });
             }
-
+            
             const loader = document.getElementById('page-loader');
             
-            // Prevent Right Click
             document.addEventListener('contextmenu', e => { 
                 if(e.target.nodeName!=='INPUT'&&e.target.nodeName!=='TEXTAREA'&&e.target.nodeName!=='VIDEO') e.preventDefault(); 
             });
             
-            // Global Link Loader
             document.body.addEventListener('click', (e) => {
                 const link = e.target.closest('a');
                 if (link) {
@@ -195,7 +190,6 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             if(urlParams.get('success')) showToast(urlParams.get('success'), 'success');
             if(urlParams.get('error')||urlParams.get('success')) window.history.replaceState({}, document.title, window.location.pathname);
             
-            // Slider
             const slides = document.querySelectorAll('.slide');
             if(slides.length>1){ let current=0; setInterval(()=>{ slides[current].classList.remove('active'); current=(current+1)%slides.length; slides[current].classList.add('active'); },4000); }
 
@@ -208,7 +202,8 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
             }
 
             window.toggleHelp = function() {
-                document.getElementById('download-help').classList.toggle('hidden');
+                const el = document.getElementById('download-help');
+                el.classList.toggle('hidden');
             }
             
             window.toggleSeason = function(id) {
@@ -229,6 +224,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
                 if(loader) loader.style.display = 'flex';
                 
                 let finalUrl = content;
+
                 if (type === 'direct') {
                     try {
                         const res = await fetch('/api/resolve-url?token=' + content);
@@ -262,6 +258,32 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
         });
 
         function showToast(msg, type) { const box=document.getElementById('toast-box'); const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=(type==='error'?'<i class="fa-solid fa-circle-exclamation"></i>':'<i class="fa-solid fa-circle-check"></i>')+msg; box.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); },3000); }
+        let page = 1; let isLoading = false; let hasMore = true;
+        async function loadMoreMovies(category) {
+            if(isLoading || !hasMore) return;
+            isLoading = true;
+            document.getElementById('loading-indicator').style.display = 'block';
+            page++;
+            try {
+                const res = await fetch('/api/list?cat=' + category + '&page=' + page);
+                const data = await res.json();
+                if(data.movies.length === 0) { hasMore = false; document.getElementById('loading-indicator').style.display = 'none'; return; }
+                const container = document.getElementById('movie-grid');
+                data.movies.forEach(m => {
+                    const el = document.createElement('a'); el.href = '/movie/' + m.id;
+                    if(category === "All Uncensored") {
+                         el.className = 'block bg-[#1f1f1f] rounded overflow-hidden mb-4';
+                         el.innerHTML = '<img src="'+m.coverUrl+'" class="aspect-video object-cover w-full" /><div class="p-3"><h3 class="text-sm font-bold truncate text-white">'+m.title+'</h3></div>';
+                    } else {
+                         el.className = 'block bg-[#1f1f1f] rounded overflow-hidden';
+                         el.innerHTML = '<img src="'+m.posterUrl+'" class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">'+m.title+'</h3></div>';
+                    }
+                    container.appendChild(el);
+                });
+            } catch(e) { console.error(e); }
+            isLoading = false; document.getElementById('loading-indicator').style.display = 'none';
+        }
+        window.addEventListener('scroll', () => { if(window.location.pathname.startsWith('/category/') && (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500) { const cat = window.location.pathname.split('/').pop().replace(/%20/g, ' '); loadMoreMovies(cat); }});
       `}} />
     </head>
     <body>
@@ -297,7 +319,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
 );
 
 // =======================
-// 5. PUBLIC ROUTES
+// 5. PUBLIC ROUTES & API
 // =======================
 
 app.get("/manifest.json", (c) => c.json({
@@ -313,11 +335,12 @@ app.get("/manifest.json", (c) => c.json({
   ]
 }));
 
+// ASSET LINKS
 app.get("/.well-known/assetlinks.json", (c) => c.json([{
   "relation": ["delegate_permission/common.handle_all_urls"],
   "target": {
     "namespace": "android_app",
-    "package_name": "dev.deno.goldflix_stream.twa",
+    "package_name": "dev.deno.goldflix_stream.twa", 
     "sha256_cert_fingerprints": ["29:7D:1A:43:86:09:03:FE:02:F9:69:46:5A:F8:B7:C0:9A:14:75:10:F6:F3:07:4F:2E:CF:0E:F1:3E:D4:5F:7D"]
   }
 }]));
@@ -337,7 +360,7 @@ app.get("/service-worker.js", (c) => c.text(`
 app.get("/", async (c) => {
   if (await checkIP(c)) return c.text("Access Denied: IP Banned", 403);
   const user = await getCurrentUser(c);
-  // Important: Disable caching for Home Page to fix Login/Me issue
+  // NO CACHE HEADERS
   c.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
   c.header('Expires', '-1');
   c.header('Pragma', 'no-cache');
@@ -392,11 +415,12 @@ app.get("/", async (c) => {
                     </div>
                 )
             }
-            // Standard Layout
+
             return (
                 <div>
                     <div class="flex justify-between items-end mb-3 px-1">
-                        <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2><a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
+                        <h2 class="text-lg font-bold text-white border-l-4 border-red-600 pl-2">{cat}</h2>
+                        <a href={`/category/${cat}`} class="text-xs font-bold text-gray-400 flex items-center gap-1">See All <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
                     </div>
                     <div class="h-scroll-section custom-scroll">
                         {catMovies.map(m => (
@@ -433,7 +457,7 @@ app.get("/api/resolve-url", async (c) => {
     return c.json({ url: entry.value });
 });
 
-// OTHER ROUTES... (Category, Search, Request, Favorites - Same as before)
+// Category Page
 app.get("/category/:cat", async (c) => {
     const user = await getCurrentUser(c);
     const cat = c.req.param("cat");
@@ -441,81 +465,250 @@ app.get("/category/:cat", async (c) => {
     const allMovies = await getMovies();
     const filtered = allMovies.filter((m) => m.category === cat);
     const initialMovies = filtered.slice(0, 15);
+    
     const isUncensored = cat === "All Uncensored";
-    return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="px-3 py-6"><div class="flex justify-between items-center mb-4"><h1 class="text-xl font-bold text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1><span class="bg-red-600 text-[10px] px-2 py-1 rounded text-white font-bold tracking-wider">{filtered.length} ITEMS</span></div><div id="movie-grid" class={isUncensored ? "space-y-4" : "grid grid-cols-3 gap-2"}>{initialMovies.map(m => (<a href={`/movie/${m.id}`} class={`block bg-[#1f1f1f] rounded overflow-hidden ${isUncensored ? 'mb-4' : ''}`}><img src={isUncensored ? (m.coverUrl || m.posterUrl) : m.posterUrl} class={isUncensored ? "aspect-video object-cover w-full" : "aspect-[2/3] object-cover w-full"} /><div class={isUncensored ? "p-3" : "p-1.5"}><h3 class={isUncensored ? "text-sm font-bold truncate text-white" : "text-[10px] font-bold truncate text-white"}>{m.title}</h3></div></a>))}</div><div id="loading-indicator" class="text-center py-4 hidden"><i class="fa-solid fa-circle-notch fa-spin text-red-600 text-xl"></i></div></div></Layout>);
+
+    return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="px-3 py-6"><div class="flex justify-between items-center mb-4"><h1 class="text-xl font-bold text-white flex items-center gap-2"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a> {cat}</h1><span class="bg-red-600 text-[10px] px-2 py-1 rounded text-white font-bold tracking-wider">{filtered.length} ITEMS</span></div>
+        <div id="movie-grid" class={isUncensored ? "space-y-4" : "grid grid-cols-3 gap-2"}>
+            {initialMovies.map(m => (
+                <a href={`/movie/${m.id}`} class={`block bg-[#1f1f1f] rounded overflow-hidden ${isUncensored ? 'mb-4' : ''}`}>
+                    <img src={isUncensored ? (m.coverUrl || m.posterUrl) : m.posterUrl} class={isUncensored ? "aspect-video object-cover w-full" : "aspect-[2/3] object-cover w-full"} />
+                    <div class={isUncensored ? "p-3" : "p-1.5"}><h3 class={isUncensored ? "text-sm font-bold truncate text-white" : "text-[10px] font-bold truncate text-white"}>{m.title}</h3></div>
+                </a>
+            ))}
+        </div>
+        <div id="loading-indicator" class="text-center py-4 hidden"><i class="fa-solid fa-circle-notch fa-spin text-red-600 text-xl"></i></div></div></Layout>);
 });
+
+// Search, Request, Favorites, Auth Routes (Same structure as before)
 app.get("/search", async (c) => { const user = await getCurrentUser(c); const query = c.req.query("q")?.toLowerCase() || ""; const config = await getConfig(); const allMovies = await getMovies(); const results = allMovies.filter(m => (m.title && m.title.toLowerCase().includes(query)) || (m.tags && m.tags.toLowerCase().includes(query))); return c.html(<Layout user={user} announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-4"><div class="flex items-center gap-3 mb-6"><a href="/" class="text-gray-400"><i class="fa-solid fa-arrow-left"></i></a><form action="/search" method="get" class="flex-grow relative"><input name="q" value={query} placeholder="Search..." class="w-full bg-[#1f1f1f] border border-zinc-800 rounded-full py-2 px-4 text-sm outline-none" /></form></div><h2 class="text-sm text-gray-400 mb-4">Results for "{query}" ({results.length})</h2><div class="grid grid-cols-3 gap-2">{results.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div></div></Layout>); });
 app.get("/request", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const config = await getConfig(); return c.html(<Layout user={user} title="Request" announcement={config.showAnnouncement ? config.announcement : undefined}><div class="p-6 max-w-md mx-auto min-h-[70vh] flex flex-col justify-center"><h1 class="text-2xl font-bold mb-4 text-yellow-500">Request Movie</h1><p class="text-gray-400 text-sm mb-6">Can't find what you're looking for? Let us know!</p><form action="/request" method="post" class="space-y-4"><input name="movieName" placeholder="Movie Name (e.g. Iron Man)" required class="input-box" /><button class="btn-primary w-full">Submit Request</button></form></div></Layout>); });
 app.post("/request", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const { movieName } = await c.req.parseBody(); const req: UserRequest = { id: crypto.randomUUID(), username: user.username, movieName: String(movieName), timestamp: Date.now() }; await kv.set(["requests", req.id], req); return c.redirect("/request?success=Request Submitted!"); });
 app.get("/favorites", async (c) => { const user = await getCurrentUser(c); if(!user) return c.redirect("/login"); const allMovies = await getMovies(); const favs = allMovies.filter(m => user.favorites?.includes(m.id)); return c.html(<Layout user={user} title="Saved"><div class="p-4"><h1 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-heart text-red-600"></i> My Saved Movies</h1><div class="grid grid-cols-3 gap-2">{favs.map(m => (<a href={`/movie/${m.id}`} class="block bg-[#1f1f1f] rounded overflow-hidden"><img src={m.posterUrl} class="aspect-[2/3] object-cover w-full" /><div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div></a>))}</div>{favs.length===0 && <p class="text-gray-500 text-center mt-10">No saved movies.</p>}</div></Layout>); });
 app.post("/api/fav", async (c) => { const user = await getCurrentUser(c); if (!user) return c.redirect("/login"); const { movieId } = await c.req.parseBody(); const id = String(movieId); if (!user.favorites) user.favorites = []; if (user.favorites.includes(id)) user.favorites = user.favorites.filter(f => f !== id); else user.favorites.push(id); await kv.set(["users", user.username], user); return c.redirect(c.req.header("Referer") || "/"); });
-app.get("/stream/:token", async (c) => { const token = c.req.param("token"); const entry = await kv.get(["stream_tokens", token]); if (!entry.value) return c.text("Link Expired or Invalid", 403); return c.redirect(entry.value as string); });
-app.get("/dl/:token", async (c) => { const token = c.req.param("token"); const entry = await kv.get(["stream_tokens", token]); if (!entry.value) return c.text("Download Link Expired", 403); return c.redirect(entry.value as string); });
 
-// MOVIE DETAIL (Unchanged)
+// =======================
+// 6. STREAM & DOWNLOAD LOGIC
+// =======================
+
+app.get("/stream/:token", async (c) => {
+    const token = c.req.param("token");
+    const entry = await kv.get(["stream_tokens", token]);
+    if (!entry.value) return c.text("Link Expired or Invalid", 403);
+    return c.redirect(entry.value as string);
+});
+
+app.get("/dl/:token", async (c) => {
+    const token = c.req.param("token");
+    const entry = await kv.get(["stream_tokens", token]);
+    if (!entry.value) return c.text("Download Link Expired", 403);
+    return c.redirect(entry.value as string);
+});
+
 app.get("/movie/:id", async (c) => {
     const id = c.req.param("id");
     const movie = await getMovie(id);
     const user = await getCurrentUser(c);
     const config = await getConfig();
     if (!movie) return c.text("Not Found", 404);
+  
     const premium = isPremium(user);
     const isFav = user?.favorites?.includes(id);
     const displayImage = movie.coverUrl || movie.posterUrl; 
+
     const allMovies = await getMovies();
     const related = allMovies.filter(m => m.category === movie.category && m.id !== movie.id).slice(0, 6);
+
     let initialStreamUrl = movie.streamUrl;
     let episodes = movie.episodes || [];
     if (movie.category === "Series" && episodes.length > 0) initialStreamUrl = episodes[0].url;
+
     const seasons: Record<string, Episode[]> = {};
     const ungrouped: Episode[] = [];
-    if(episodes) { episodes.forEach(ep => { if(ep.season) { if(!seasons[ep.season]) seasons[ep.season] = []; seasons[ep.season].push(ep); } else { ungrouped.push(ep); } }); }
-    let playerUrl = ""; let secureDownloadUrl = ""; let secureDownloadUrl2 = ""; let playerUrl2 = ""; let playbackToken = ""; let playbackToken2 = "";
-    if (premium) {
-        if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) { playerUrl = initialStreamUrl; } else { let realUrl = initialStreamUrl; if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl); const token = crypto.randomUUID(); await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); playerUrl = `/stream/${token}`; playbackToken = token; }
-        if (movie.streamUrl2) { const token2 = crypto.randomUUID(); await kv.set(["stream_tokens", token2], movie.streamUrl2, { expireIn: 3600 * 3 }); playerUrl2 = `/stream/${token2}`; playbackToken2 = token2; }
-        if (movie.downloadUrl) { const dlToken = crypto.randomUUID(); await kv.set(["stream_tokens", dlToken], movie.downloadUrl, { expireIn: 3600 * 3 }); secureDownloadUrl = `/dl/${dlToken}`; }
-        if (movie.downloadUrl2) { const dlToken2 = crypto.randomUUID(); await kv.set(["stream_tokens", dlToken2], movie.downloadUrl2, { expireIn: 3600 * 3 }); secureDownloadUrl2 = `/dl/${dlToken2}`; }
+
+    if(episodes) {
+        episodes.forEach(ep => {
+            if(ep.season) {
+                if(!seasons[ep.season]) seasons[ep.season] = [];
+                seasons[ep.season].push(ep);
+            } else {
+                ungrouped.push(ep);
+            }
+        });
     }
+
+    let playerUrl = "";
+    let secureDownloadUrl = "";
+    let secureDownloadUrl2 = "";
+    let playerUrl2 = "";
+    let playbackToken = "";
+    let playbackToken2 = "";
+
+    if (premium) {
+        if (movie.linkType === "embed" || initialStreamUrl.includes("<iframe")) {
+            playerUrl = initialStreamUrl;
+        } else {
+            let realUrl = initialStreamUrl;
+            if (movie.linkType === "direct") realUrl = await resolveRedirect(initialStreamUrl);
+            const token = crypto.randomUUID();
+            await kv.set(["stream_tokens", token], realUrl, { expireIn: 3600 * 3 }); 
+            playerUrl = `/stream/${token}`;
+            playbackToken = token; 
+        }
+
+        if (movie.streamUrl2) {
+             const token2 = crypto.randomUUID();
+             await kv.set(["stream_tokens", token2], movie.streamUrl2, { expireIn: 3600 * 3 });
+             playerUrl2 = `/stream/${token2}`;
+             playbackToken2 = token2;
+        }
+
+        if (movie.downloadUrl) {
+             const dlToken = crypto.randomUUID();
+             await kv.set(["stream_tokens", dlToken], movie.downloadUrl, { expireIn: 3600 * 3 });
+             secureDownloadUrl = `/dl/${dlToken}`;
+        }
+        
+        if (movie.downloadUrl2) {
+             const dlToken2 = crypto.randomUUID();
+             await kv.set(["stream_tokens", dlToken2], movie.downloadUrl2, { expireIn: 3600 * 3 });
+             secureDownloadUrl2 = `/dl/${dlToken2}`;
+        }
+    }
+  
     return c.html(
       <Layout user={user} title={movie.title} announcement={config.showAnnouncement ? config.announcement : undefined}>
         <div class="max-w-4xl mx-auto">
+           {/* VIDEO CONTAINER */}
            <div class="w-full aspect-video bg-black relative shadow-lg group">
-              {premium ? ( <> <div id="video-cover" class="absolute inset-0 z-20"> <img src={displayImage} class="w-full h-full object-cover" /> </div> <div id="video-player-loader" class="video-loader"><div class="spinner"></div></div> <div id="video-player" class="w-full h-full hidden"></div> </> ) : ( <div class="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 z-30"> <img src={displayImage} class="absolute inset-0 w-full h-full object-cover opacity-20 blur-sm" /> <div class="relative z-40 text-center"> <i class="fa-solid fa-lock text-4xl text-red-600 mb-2"></i> <h2 class="text-lg font-bold text-white">VIP Only</h2> <a href={user ? "/profile" : "/login"} class="mt-4 bg-white text-black px-6 py-2 rounded font-bold text-sm inline-block">Unlock</a> </div> </div> )}
+              {premium ? (
+                  <>
+                    <div id="video-cover" class="absolute inset-0 z-20">
+                        <img src={displayImage} class="w-full h-full object-cover" />
+                    </div>
+                    <div id="video-player-loader" class="video-loader"><div class="spinner"></div></div>
+                    <div id="video-player" class="w-full h-full hidden"></div>
+                  </>
+              ) : (
+                  <div class="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 z-30">
+                      <img src={displayImage} class="absolute inset-0 w-full h-full object-cover opacity-20 blur-sm" />
+                      <div class="relative z-40 text-center">
+                          <i class="fa-solid fa-lock text-4xl text-red-600 mb-2"></i>
+                          <h2 class="text-lg font-bold text-white">VIP Only</h2>
+                          <a href={user ? "/profile" : "/login"} class="mt-4 bg-white text-black px-6 py-2 rounded font-bold text-sm inline-block">Unlock</a>
+                      </div>
+                  </div>
+              )}
            </div>
+           
            <div class="p-4">
-               <div class="flex justify-between items-start mb-2"> <h1 class="text-2xl font-bold text-white leading-tight">{movie.title}</h1> {user && ( <form action="/api/fav" method="post"> <input type="hidden" name="movieId" value={movie.id} /> <button class="text-2xl p-2"><i class={`fa-solid fa-heart ${isFav ? 'text-red-600' : 'text-gray-600'}`}></i></button> </form> )} </div>
-               <div class="flex items-center gap-2 text-xs text-gray-400 mb-4"> <span class="bg-gray-800 px-2 py-0.5 rounded">{movie.year}</span> <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span> </div>
+               <div class="flex justify-between items-start mb-2">
+                   <h1 class="text-2xl font-bold text-white leading-tight">{movie.title}</h1>
+                   {user && (
+                       <form action="/api/fav" method="post">
+                           <input type="hidden" name="movieId" value={movie.id} />
+                           <button class="text-2xl p-2"><i class={`fa-solid fa-heart ${isFav ? 'text-red-600' : 'text-gray-600'}`}></i></button>
+                       </form>
+                   )}
+               </div>
+               
+               <div class="flex items-center gap-2 text-xs text-gray-400 mb-4">
+                   <span class="bg-gray-800 px-2 py-0.5 rounded">{movie.year}</span>
+                   <span class="text-red-500 font-bold border border-red-500/50 px-2 py-0.5 rounded">{movie.category}</span>
+               </div>
+
+               {/* BUTTONS */}
                {premium && movie.category !== "Series" && (
                    <div class="flex flex-col gap-2 mb-6">
                         <div class="flex gap-2 overflow-x-auto">
-                            <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken : playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap"> <i class="fa-solid fa-play"></i> {movie.streamUrl2 ? "Server 1" : "Play"} </button>
-                            {movie.streamUrl2 && ( <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken2 : playerUrl2}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-gray-200 text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-white whitespace-nowrap"> <i class="fa-solid fa-server"></i> Server 2 </button> )}
-                            <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700"> <i class="fa-solid fa-share-nodes"></i> Share </button>
+                            <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken : playerUrl}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-white text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-gray-200 whitespace-nowrap">
+                                <i class="fa-solid fa-play"></i> {movie.streamUrl2 ? "Server 1" : "Play"}
+                            </button>
+                            {movie.streamUrl2 && (
+                                <button onclick={`loadPlayer('${movie.linkType === 'direct' ? playbackToken2 : playerUrl2}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="flex-1 bg-gray-200 text-black font-bold py-3 px-4 rounded flex items-center justify-center gap-2 active:scale-95 transition hover:bg-white whitespace-nowrap">
+                                    <i class="fa-solid fa-server"></i> Server 2
+                                </button>
+                            )}
+                            <button onclick={`shareMovie('${movie.title}')`} class="bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700">
+                                <i class="fa-solid fa-share-nodes"></i> Share
+                            </button>
                         </div>
                         <div class="flex gap-2">
-                             {secureDownloadUrl && ( <a href={secureDownloadUrl} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs"> <i class="fa-solid fa-download"></i> DL {movie.downloadUrl2 ? "1" : ""} </a> )}
-                             {secureDownloadUrl2 && ( <a href={secureDownloadUrl2} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs"> <i class="fa-solid fa-download"></i> DL 2 </a> )}
+                             {secureDownloadUrl && (
+                                <a href={secureDownloadUrl} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs">
+                                    <i class="fa-solid fa-download"></i> DL {movie.downloadUrl2 ? "1" : ""}
+                                </a>
+                             )}
+                             {secureDownloadUrl2 && (
+                                <a href={secureDownloadUrl2} target="_blank" class="flex-1 bg-zinc-800 text-white font-bold py-3 px-4 rounded flex items-center justify-center gap-2 border border-zinc-700 active:scale-95 transition hover:bg-zinc-700 whitespace-nowrap text-xs">
+                                    <i class="fa-solid fa-download"></i> DL 2
+                                </a>
+                             )}
                         </div>
                        <button onclick="toggleHelp()" class="text-xs text-yellow-500 hover:text-yellow-400 flex items-center gap-1 mt-2"><i class="fa-solid fa-circle-question"></i> ဒေါင်းလုဒ်လုပ်နည်း</button>
-                       <div id="download-help" class="hidden bg-zinc-900 border border-yellow-600/50 rounded-lg p-3 text-xs text-gray-300 space-y-2 mt-1"> <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>Download (သို့) DL ခလုတ်ပါလျှင် နှိပ်၍ ဒေါင်းပါ။ မပါလျှင် Video Play ပြီးမှ ဒေါင်းပါ။</p> <hr class="border-zinc-700"/> <p><strong class="text-yellow-500">နည်းလမ်း (၂) - Video Player မှတဆင့်</strong><br/>1. Video ကို Play နှိပ်ပါ။<br/>2. Video ဖွင့်လာလျှင် ညာဘက်အောက်ထောင့်က အစက် ၃ စက် (<i class="fa-solid fa-ellipsis-vertical"></i>) ကိုနှိပ်ပါ။<br/>3. 'Download' ကို ရွေးချယ်ပါ။</p> </div>
+                       <div id="download-help" class="hidden bg-zinc-900 border border-yellow-600/50 rounded-lg p-3 text-xs text-gray-300 space-y-2 mt-1">
+                           <p><strong class="text-yellow-500">နည်းလမ်း (၁) - Direct Download</strong><br/>Download (သို့) DL ခလုတ်ပါလျှင် နှိပ်၍ ဒေါင်းပါ။ မပါလျှင် Video Play ပြီးမှ ဒေါင်းပါ။</p>
+                           <hr class="border-zinc-700"/>
+                           <p><strong class="text-yellow-500">နည်းလမ်း (၂) - Video Player မှတဆင့်</strong><br/>1. Video ကို Play နှိပ်ပါ။<br/>2. Video ဖွင့်လာလျှင် ညာဘက်အောက်ထောင့်က အစက် ၃ စက် (<i class="fa-solid fa-ellipsis-vertical"></i>) ကိုနှိပ်ပါ။<br/>3. 'Download' ကို ရွေးချယ်ပါ။</p>
+                       </div>
                    </div>
                )}
+
+               {/* SERIES EPISODES */}
                {movie.category === "Series" && episodes.length > 0 && premium && (
                    <div class="mb-6 space-y-2">
-                       {ungrouped.length > 0 && ( <div class="grid grid-cols-3 md:grid-cols-4 gap-2"> {ungrouped.map(ep => ( <button onclick={`loadPlayer('${ep.url}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-3 px-1 rounded truncate text-center border border-zinc-700 transition-colors">{ep.name}</button> ))} </div> )}
-                       {Object.keys(seasons).map(season => { const safeId = season.replace(/\s+/g, '-'); return ( <div class="border border-zinc-800 rounded bg-[#1f1f1f]"> <button onclick={`toggleSeason('${safeId}')`} class="w-full flex justify-between items-center p-3 text-sm font-bold text-gray-300 hover:bg-zinc-800 transition"><span>{season}</span><i id={`icon-${safeId}`} class="fa-solid fa-chevron-down transition-transform"></i></button> <div id={`season-${safeId}`} class="hidden p-2 grid grid-cols-3 gap-2 border-t border-zinc-800"> {seasons[season].map(ep => (<button onclick={`loadPlayer('${ep.url}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-2 px-1 rounded truncate text-center border border-zinc-700 transition-colors">{ep.name}</button>))} </div> </div> ) })}
+                       {ungrouped.length > 0 && (
+                            <div class="grid grid-cols-3 md:grid-cols-4 gap-2">
+                                {ungrouped.map(ep => (
+                                    <button onclick={`loadPlayer('${ep.url}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-3 px-1 rounded truncate text-center border border-zinc-700 transition-colors">
+                                        {ep.name}
+                                    </button>
+                                ))}
+                            </div>
+                       )}
+                       {Object.keys(seasons).map(season => {
+                           const safeId = season.replace(/\s+/g, '-');
+                           return (
+                               <div class="border border-zinc-800 rounded bg-[#1f1f1f]">
+                                   <button onclick={`toggleSeason('${safeId}')`} class="w-full flex justify-between items-center p-3 text-sm font-bold text-gray-300 hover:bg-zinc-800 transition">
+                                       <span>{season}</span>
+                                       <i id={`icon-${safeId}`} class="fa-solid fa-chevron-down transition-transform"></i>
+                                   </button>
+                                   <div id={`season-${safeId}`} class="hidden p-2 grid grid-cols-3 gap-2 border-t border-zinc-800">
+                                       {seasons[season].map(ep => (
+                                           <button onclick={`loadPlayer('${ep.url}', '${movie.linkType}', '${movie.id}', '${movie.title}', '${movie.posterUrl}')`} class="bg-zinc-800 hover:bg-red-600 text-xs py-2 px-1 rounded truncate text-center border border-zinc-700 transition-colors">
+                                               {ep.name}
+                                           </button>
+                                       ))}
+                                   </div>
+                               </div>
+                           )
+                       })}
                    </div>
                )}
+
                <p class="text-sm text-gray-300 leading-relaxed mb-8">{movie.description}</p>
-               {related.length > 0 && ( <div class="pt-4 border-t border-zinc-800"> <h3 class="font-bold text-white mb-4">You May Also Like</h3> <div class="h-scroll-section custom-scroll"> {related.map(m => ( <a href={`/movie/${m.id}`} class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden"> <img src={m.posterUrl} /> <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div> </a> ))} </div> </div> )}
+
+               {related.length > 0 && (
+                   <div class="pt-4 border-t border-zinc-800">
+                       <h3 class="font-bold text-white mb-4">You May Also Like</h3>
+                       <div class="h-scroll-section custom-scroll">
+                           {related.map(m => (
+                               <a href={`/movie/${m.id}`} class="h-scroll-item block relative bg-[#1f1f1f] rounded overflow-hidden">
+                                   <img src={m.posterUrl} />
+                                   <div class="p-1.5"><h3 class="text-[10px] font-bold truncate text-white">{m.title}</h3></div>
+                               </a>
+                           ))}
+                       </div>
+                   </div>
+               )}
            </div>
         </div>
       </Layout>
     );
 });
 
-// LOGIN, SIGNUP, ADMIN... (Same as before)
+// AUTH + ADMIN ROUTES (SAME AS BEFORE)
 app.get("/login", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/login" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Sign In</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><label class="flex items-center text-gray-400 text-xs"><input type="checkbox" name="remember" class="mr-2 accent-red-600" /> Remember Me (7 Days)</label><button class="btn-primary w-full mt-2">Login</button><p class="text-xs text-gray-500 text-center mt-4">No account? <a href="/signup" class="text-white font-bold">Sign up</a></p></form></div></div></Layout>));
 app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body["username"] as string); const hashedInput = await hashPassword(body["password"] as string); if (user && user.passwordHash === hashedInput) { const sessionId = crypto.randomUUID(); user.sessionId = sessionId; await kv.set(["users", user.username], user); const maxAge = body["remember"] === "on" ? 60 * 60 * 24 * 7 : undefined; setCookie(c, "auth_session", `${user.username}:${sessionId}`, { path: "/", maxAge }); return c.redirect("/"); } return c.redirect("/login?error=Invalid Username or Password"); });
 app.get("/signup", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black p-4"><div class="w-full max-w-sm"><h1 class="text-3xl font-black text-red-600 mb-8 text-center italic">GOLD FLIX</h1><form action="/signup" method="post" class="bg-[#1f1f1f] p-6 rounded-lg border border-zinc-800 space-y-4 shadow-xl"><h2 class="text-xl font-bold text-white mb-2">Create Account</h2><input name="username" placeholder="Username" required class="input-box" /><input type="password" name="password" placeholder="Password" required class="input-box" /><button class="btn-primary w-full mt-2">Sign Up</button><p class="text-xs text-gray-500 text-center mt-4">Has account? <a href="/login" class="text-white font-bold">Login</a></p></form></div></div></Layout>));
@@ -526,7 +719,7 @@ app.get("/logout", (c) => { deleteCookie(c, "auth_session"); return c.redirect("
 const adminAuth = async (c: any, next: any) => { const session = getCookie(c, "admin_session"); if (session === Deno.env.get("ADMIN_PASSWORD")) await next(); else return c.redirect("/admin"); };
 app.get("/admin", (c) => c.html(<Layout hideNav={true}><div class="min-h-screen flex items-center justify-center bg-black"><form action="/admin/login" method="post" class="bg-[#1f1f1f] p-8 rounded w-80"><h2 class="font-bold text-center mb-4">Admin Login</h2><input type="password" name="password" placeholder="Key" class="input-box mb-4" /><button class="btn-primary w-full">Enter</button></form></div></Layout>));
 app.post("/admin/login", async (c) => { const { password } = await c.req.parseBody(); if (password === Deno.env.get("ADMIN_PASSWORD")) { setCookie(c, "admin_session", String(password), { path: "/" }); return c.redirect("/admin/dashboard"); } return c.redirect("/admin"); });
-app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const loginLogs = await getRecentLogins(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
+app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMovies(); const keys = await getKeys(); const requests = await getRequests(); const config = await getConfig(); const editId = c.req.query("edit"); const editMovie = editId ? movies.find(m => m.id === editId) : null; const epString = editMovie?.episodes?.map(e => {
         if(e.season) return `${e.season} | ${e.name} | ${e.url}`;
         return `${e.name} | ${e.url}`;
     }).join('\n') || "";
@@ -543,7 +736,6 @@ app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMo
                     {/* RIGHT: KEYS, REQUESTS, LIST, IP MANAGER */}
                     <div class="space-y-6">
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700"><h2 class="font-bold mb-3 text-sm">VIP Keys</h2><form action="/admin/key/create" method="post" class="flex gap-2"><input type="number" name="days" placeholder="Days" required class="input-box" /><button class="btn-primary">Gen</button></form><div class="mt-2 max-h-32 overflow-y-auto custom-scroll">{keys.map(k => (<div class="flex justify-between text-xs p-2 border-b border-zinc-800"><span class="text-yellow-500 font-mono">{k.code}</span><span>{k.days}D</span><form action={`/admin/key/delete/${k.code}`} method="post"><button class="text-red-500">x</button></form></div>))}</div></div>
-                        <div class="bg-[#1f1f1f] p-4 rounded border border-red-900/50"><h2 class="font-bold mb-2 text-sm text-red-500">Recent Logins (IP Ban)</h2><div class="max-h-32 overflow-y-auto custom-scroll space-y-1">{loginLogs.map(l => (<div class="flex justify-between bg-black p-1 px-2 rounded text-[10px] items-center"><div class="flex flex-col"><span class="text-white font-bold">{l.username}</span><span class="text-gray-500">{l.ip}</span></div><form action="/admin/ban" method="post"><input type="hidden" name="ip" value={l.ip} /><button class="bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700">Ban</button></form></div>))}</div><h3 class="font-bold mt-2 text-xs text-gray-400">Banned IPs</h3><div class="max-h-20 overflow-y-auto custom-scroll space-y-1">{(await getBannedIPs()).map(b => (<div class="flex justify-between bg-black p-1 px-2 rounded text-[10px]"><span>{b.ip}</span><form action={`/admin/unban/${b.ip}`} method="post"><button class="text-green-500">Unban</button></form></div>))}</div></div>
                         <div class="bg-[#1f1f1f] p-4 rounded border border-blue-900/50"><h2 class="font-bold mb-2 text-sm text-blue-400">User Requests</h2><div class="max-h-40 overflow-y-auto custom-scroll space-y-2">{requests.map(r => (<div class="bg-black p-2 rounded text-xs flex justify-between"><div><span class="text-yellow-500 font-bold">{r.movieName}</span> <span class="text-gray-500">by {r.username}</span></div><form action={`/admin/request/delete/${r.id}`} method="post"><button class="text-red-500">x</button></form></div>))}{requests.length === 0 && <p class="text-gray-600 text-xs">No requests.</p>}</div></div>
                         <div class="bg-[#1f1f1f] p-4 rounded border border-zinc-700 flex flex-col h-[500px]"><div class="flex justify-between items-center mb-3"><h2 class="font-bold text-sm">Library ({movies.length})</h2><input oninput="filterMovies(this.value)" placeholder="Search..." class="bg-black border border-zinc-800 rounded px-2 py-1 text-xs w-32" /></div><div class="space-y-2 flex-1 overflow-y-auto pr-2 custom-scroll">{movies.map(m => (<div class="movie-item flex gap-3 mb-3 p-2 bg-black rounded items-center group relative" data-title={m.title}><img src={m.posterUrl} class="w-10 h-14 object-cover" /><div class="flex-grow min-w-0"><div class="font-bold text-xs truncate">{m.title}</div><div class="text-[10px] text-gray-500">{m.category}</div></div><div class="flex gap-2"><a href={`/admin/dashboard?edit=${m.id}`} class="text-blue-500 text-xs border border-blue-500/50 px-2 py-1 rounded hover:bg-blue-500/10">Edit</a><form action={`/admin/movie/delete/${m.id}`} method="post" onsubmit="return confirm('Del?')"><button class="text-red-500 text-xs border border-red-500/50 px-2 py-1 rounded hover:bg-red-500/10">Del</button></form></div></div>))}</div></div>
                     </div>
@@ -553,7 +745,7 @@ app.get("/admin/dashboard", adminAuth, async (c) => { const movies = await getMo
     );
 });
 
-// Admin Actions (unchanged)
+// Admin Actions
 app.post("/admin/config", adminAuth, async (c) => { const body = await c.req.parseBody(); await kv.set(["config"], { announcement: body['text'], showAnnouncement: body['show'] === 'on' }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/request/delete/:id", adminAuth, async (c) => { await kv.delete(["requests", c.req.param("id")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/movie/save", adminAuth, async (c) => { 
@@ -583,8 +775,6 @@ app.post("/admin/movie/delete/:id", adminAuth, async (c) => { await kv.delete(["
 app.post("/admin/key/create", adminAuth, async (c) => { const { days } = await c.req.parseBody(); const code = "VIP-" + Math.random().toString(36).substring(2, 7).toUpperCase(); await kv.set(["keys", code], { code, days: parseInt(String(days)) }); return c.redirect("/admin/dashboard"); });
 app.post("/admin/key/delete/:code", adminAuth, async (c) => { await kv.delete(["keys", c.req.param("code")]); return c.redirect("/admin/dashboard"); });
 app.post("/admin/user/reset", adminAuth, async (c) => { const { username, newpass } = await c.req.parseBody(); const user = await getUser(String(username)); if (user) { user.passwordHash = await hashPassword(String(newpass)); await kv.set(["users", String(username)], user); return c.redirect("/admin/dashboard?success=Password updated"); } return c.redirect("/admin/dashboard?error=User not found"); });
-app.post("/admin/ban", adminAuth, async (c) => { const { ip } = await c.req.parseBody(); await kv.set(["banned_ips", String(ip)], { ip, reason: "Manual Ban" }); return c.redirect("/admin/dashboard"); });
-app.post("/admin/unban/:ip", adminAuth, async (c) => { await kv.delete(["banned_ips", c.req.param("ip")]); return c.redirect("/admin/dashboard"); });
 app.get("/admin/backup", adminAuth, async (c) => { const data = []; for await (const entry of kv.list({ prefix: [] })) { data.push({ key: entry.key, value: entry.value }); } return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="backup_${Date.now()}.json"` } }); });
 app.post("/admin/restore", adminAuth, async (c) => { try { const body = await c.req.parseBody(); const file = body['file']; if (file instanceof File) { const text = await file.text(); const data = JSON.parse(text); for (const item of data) { await kv.set(item.key, item.value); } return c.redirect("/admin/dashboard?success=Data Restored"); } } catch(e) { return c.redirect("/admin/dashboard?error=Restore Failed"); } });
 
