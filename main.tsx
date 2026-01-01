@@ -983,4 +983,16 @@ app.post("/admin/user/toggle-ban", adminGuard, async (c) => {
 app.get("/admin/backup", adminGuard, async (c) => { const data = []; for await (const entry of kv.list({ prefix: [] })) { data.push({ key: entry.key, value: entry.value }); } return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="backup_${Date.now()}.json"` } }); });
 app.post("/admin/restore", adminGuard, async (c) => { try { const body = await c.req.parseBody(); const file = body['file']; if (file instanceof File) { const text = await file.text(); const data = JSON.parse(text); for (const item of data) { await kv.set(item.key, item.value); } await reIndexDatabase(); return c.redirect(ADMIN_ROUTE + "/dashboard?success=Data Restored"); } } catch(e) { return c.redirect(ADMIN_ROUTE + "/dashboard?error=Restore Failed"); } });
 
+// =======================
+// IP DEBUGGER (စမ်းသပ်ရန်)
+// =======================
+app.get("/check-ip", (c) => {
+    return c.json({
+        "My Detected IP": getClientIp(c),
+        "x-forwarded-for": c.req.header("x-forwarded-for"),
+        "x-real-ip": c.req.header("x-real-ip"),
+        "cf-connecting-ip": c.req.header("cf-connecting-ip"),
+        "All Headers": c.req.header()
+    });
+});
 Deno.serve(app.fetch);
