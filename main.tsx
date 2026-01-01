@@ -48,7 +48,7 @@ const i18n: any = {
 // 2. UTILS
 // =======================
 function getLang(c: any) {
-    return getCookie(c, "app_lang") || "my"; // Default to Myanmar
+    return getCookie(c, "app_lang") || "en"; // Default to Myanmar
 }
 
 async function hashPassword(password: string): Promise<string> {
@@ -249,7 +249,7 @@ const Layout = (props: { children: any; title?: string; user?: User | null; hide
     });
     window.addEventListener('dragstart', event => event.preventDefault());
 `;
-  const l = props.lang || "my";
+  const l = props.lang || "en";
   const t = i18n[l];
 
   return (
