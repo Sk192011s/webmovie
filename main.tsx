@@ -1,4 +1,3 @@
-```typescript
 /** @jsxImportSource hono/jsx */
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
