@@ -1,9 +1,14 @@
-/** @jsxImportSource npm:hono@4/jsx */
-import { Hono } from "npm:hono@4";
-import { getCookie, setCookie, deleteCookie } from "npm:hono@4/cookie";
-import { secureHeaders } from "npm:hono@4/secure-headers";
-import { compress } from "npm:hono@4/compress";
-import { csrf } from "npm:hono@4/csrf";
+// (၁) ဒီစာကြောင်းကို ဖျက်လိုက်ပါ သို့မဟုတ် မထည့်ပါနဲ့ -> /** @jsxImportSource ... */
+
+// (၂) Import တွေကို npm: မပါဘဲ ဒီလိုပြောင်းရေးပါ
+import { Hono } from "hono";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { secureHeaders } from "hono/secure-headers";
+import { compress } from "hono/compress";
+import { csrf } from "hono/csrf";
+import { html } from "hono/html"; // ဒါလေးဖြည့်လိုက်ပါ
+
+// ... ကျန်တာတွေ ပုံမှန်အတိုင်းဆက်ရေးပါ
 
 // =======================
 // 1. GLOBAL CONFIG & KV
