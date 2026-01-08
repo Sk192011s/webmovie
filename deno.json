@@ -1,12 +1,10 @@
 {
-  "tasks": {
-    "start": "deno run --allow-net --allow-env --allow-read --allow-write --unstable-kv main.tsx"
-  },
   "imports": {
-    "hono": "npm:hono@4"
+    "hono": "https://esm.sh/hono@4.6.14",
+    "hono/": "https://esm.sh/hono@4.6.14/"
   },
   "compilerOptions": {
-    "jsx": "precompile",
+    "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   }
 }
