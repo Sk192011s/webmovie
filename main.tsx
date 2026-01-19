@@ -1702,7 +1702,7 @@ app.get("/profile", async (c) => {
             </div>
             <div class="bg-[#1f1f1f] p-5 rounded-lg border border-zinc-800 relative overflow-hidden">
                  <div class="absolute -right-4 -top-4 opacity-5"><i class="fa-solid fa-ticket text-8xl"></i></div>
-                 <h3 class="font-bold text-gray-300 text-sm mb-3 flex items-center gap-2 relative z-10"><i class="fa-solid fa-gift text-yellow-500"></i> Redeem Code</h3>
+                 <h3 class="font-bold text-gray-300 text-sm mb-3 flex items-center gap-2 relative z-10"><i class="fa-solid fa-gift text-yellow-500"></i> အောက်တွင်ဝယ်ယူထားသော Keyထည့်ပါ</h3>
                  <form action="/profile/redeem" method="post" class="relative z-10 flex gap-2">
                     <input name="key" placeholder="Paste VIP or Coin Code..." required class="bg-black/50 border border-zinc-700 text-white text-sm px-4 py-3 rounded-xl w-full outline-none focus:border-yellow-500 transition placeholder-gray-600 font-mono" />
                     <button class="bg-yellow-500 text-black font-bold px-5 rounded-xl hover:bg-yellow-400 transition shadow-lg"><i class="fa-solid fa-arrow-right"></i></button>
