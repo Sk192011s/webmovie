@@ -828,7 +828,7 @@ console.log("Playing:", finalUrl);
               <div class="w-16 h-16 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-purple-500/20"><i class="fa-solid fa-circle-question text-3xl text-purple-400"></i></div>
               <h3 class="text-lg font-bold text-white mb-4">ဒေါင်းလော့ လုပ်နည်း</h3>
               <div class="text-left text-xs text-gray-300 space-y-3 mb-6 bg-black/30 p-4 rounded-xl border border-white/5">
-                   <p><strong class="text-purple-400">နည်းလမ်း ၁ (Direct)</strong><br/> Movieမှာ <span class="text-white font-bold bg-slate-700 px-1 rounded">DL</span> ခလုတ်များ ပါရှိပါက နှိပ်၍ တိုက်ရိုက်ဒေါင်းယူနိုင်ပါသည်။မပါလျှင်နည်းလမ်း၂ကိုသူုံပါ</p>
+                   <p><strong class="text-purple-400">နည်းလမ်း ၁ (Direct)</strong><br/> Movieမှာ <span class="text-white font-bold bg-slate-700 px-1 rounded">DL</span> ခလုတ်များ ပါရှိပါက နှိပ်၍ တိုက်ရိုက်ဒေါင်းယူနိုင်ပါသည်။မပါလျှင်နည်းလမ်း၂ကိုသုံးပါ</p>
                    <hr class="border-white/10"/>
                    <p><strong class="text-purple-400">နည်းလမ်း ၂ (Player)</strong><br/> ၁။ Video ကို ခဏPlay လိုက်ပါ။<br/> ၂။ Videoလာလျှင် ညာဘက်အောက်ထောင့်က <i class="fa-solid fa-ellipsis-vertical text-white"></i> ကိုနှိပ်ပါ။<br/> ၃။ <span class="text-white font-bold">'Download'</span> ကို ရွေးချယ်ပီးဒေါင်းနိူင်ပါပြီ။videoဖွင့်ထားရန်မလိုတော့ပါ။Chrome Browser Appကိုသုံးပါ</p>
               </div>
